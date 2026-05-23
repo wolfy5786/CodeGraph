@@ -1,0 +1,98 @@
+# Node Labels — desktop / Falkor model
+
+Constraints remain **application-level**. Graph isolation = Falkor **named workspace graph** (`Graph.name`). Repo disambiguation = `repo_name` property + structural `:CodeRepository` anchor.
+
+---
+
+## Structural labels (always created Phase 1)
+
+| Label | Meaning | Typical properties |
+|-------|---------|--------------------|
+| `Graph` | Logical workspace synced with Falkor graph key | `name` |
+| `CodeRepository` | Registered absolute repo root wrapper | `name`, `graph_name`, `local_path`, `last_ingested_at` |
+| `Root` | Canonical folder node for repo filesystem root | `path`, `repo_name`, `graph_name`, `absolute_path` |
+| `Folder` | Directory subtree | same as Root sans `absolute_path` optional |
+| `File` | Real file-system file before SCIP attaches symbols | `path`, `extension`, `language_guess`, `repo_name`, `graph_name` |
+
+Structural nodes seldom carry semantic embeddings.
+
+---
+
+## Phase 1 file-type overlays (still Phase 1, extension driven)
+
+Applied to `:File`-backed ingestion units (excluding structural duplicates). Mutually exclusive categories:
+
+| # | Overlay label | File patterns | Embedding default |
+|---|---------------|---------------|-------------------|
+| 1 | `SourceFile` | `.java`, `.py`, `.kt`, `.go`, `.rs`, `.cpp`, `.js`, `.ts`, … | **Yes once Phase2+embedding TBD completes** |
+| 2 | `Dockerfile` | Dockerfile naming patterns | No |
+| 3 | `MarkupFile` | `.json`, `.yaml`, `.yml`, `.xml`, … | No |
+| 4 | `Documentation` | `.md`, `.txt`, `.rst`, … | No |
+| 5 | `SQLNoSQLScript` | `.sql`, `.cql`, … | No |
+| 6 | `CICD` | CI YAML / Jenkinsfiles | No |
+
+_Overlays stack with `:File`; `SourceFile` conflicts with overlays 2-6._
+
+Code symbols extracted via SCIP share base label **`CodeVertex`** alongside semantic overlays (see label tables below).
+
+---
+
+## Phase 2 — Tiered semantic labels
+
+All semantic adornment tiers align with `PHASE2_IMPLEMENTATION.md` (repo root) and consume **`scip_kind`** from SCIP protobuf.
+
+Tier summary:
+
+| Tier | Inputs |
+|------|--------|
+| 1 | SCIP symbol kinds + relationships + regex overlays |
+| 3 | Hover / defs / hierarchies needing live LSP |
+| 2 | DAG graph passes (InnerClass / OVERRIDES / External / SPAWNS / …) |
+
+---
+
+## Structural + semantic coexistence cheat sheet
+
+| Label | Typical level | Assigned |
+|-------|---------------|----------|
+| `Graph` | 0 | Phase 1 |
+| `CodeRepository` | 0 | Phase 1 |
+| `Root` / `Folder` | 1 | Phase 1 |
+| `File` | structural | Phase 1 |
+| `Module` / `Class` / `Enum` / `Interface` / callables … | varies | Tier 1 / SCIP groundwork |
+
+Nodes do **not** include remote blob keys or multi-tenant scope columns; scope is the Falkor graph name plus `repo_name` when needed.
+
+---
+
+## Node properties
+
+### Phase 1 structural + SCIP ingestion
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | string | Stable ID: `{graph_name}:{repo_name}:{relative_path}:{start_line}:{name}` |
+| `graph_name` | string | Workspace graph slug |
+| `repo_name` | string | Registered CodeRepository nickname |
+| `name` | string | Symbol / filename |
+| `path` | string | Repo-relative path |
+| `language` | string | Language tag |
+| `start_line`,`end_line` | int | 1-based inclusive span |
+| `scip_descriptor` | string | SCIP symbol URI |
+| `scip_kind` | int | `SymbolKind` ordinal |
+| `signature`,`detail` | string | SCIP / heuristic metadata |
+
+### Phase 2 Tier 1
+
+Includes `level`, `return_type`, `parameter_types`, `access_modifier`, `modifiers`, `annotations`, `is_static` (regex derived).
+
+### Tier 3
+
+Includes `reference_type_detail`, `definition_uri`.
+
+### Deferred (TBD)
+
+- `embedding`
+- richer `docstring`
+
+Raw bodies load from **`CodeRepository.local_path`**.

@@ -1,0 +1,83 @@
+# Relationships — Falkor/desktop
+
+Structural chain:
+
+`(Graph)-[:CONTAINS]->(:CodeRepository)-[:CONTAINS]->(:Root)`
+`(:Folder|Root)-[:CONTAINS {order}]->(:Folder|:File)`
+
+`(:File)-[:CONTAINS]->(top-level module/class/enum …)` continuing per SCIP tree.
+
+Scopes use **`graph_name`** (implicit via Falkor graph key) plus optional **`repo_name`** filter whenever multiple repos share one workspace graph.
+
+---
+
+## Phase 1 baseline CONTAINS
+
+| # | From | To | Notes |
+|---|------|----|-------|
+| 1 | Graph | CodeRepository | registration order |
+| 2 | CodeRepository | Root | single anchor per repo |
+| 3 | Folder / Root | Folder / File | filesystem walk |
+| 4 | File | SCIP top symbol | bridging requirement |
+| 5 | Semantic outer | Semantic inner | mirrors indexer hierarchy |
+
+Whole-file overlays stop at `:File`.
+
+---
+
+## Phase 2 Tier 1 — inheritance
+
+| Relationship | Primary | Fallback regex |
+|--------------|---------|------------------|
+| `INHERITS` | SCIP relationship edges | language-specific declarations |
+| `IMPLEMENTS` | SCIP | `implements` regex / analogous |
+
+Resolution example:
+
+```text
+MATCH (n {repo_name:$repo,name:$simple})
+WHERE labels include Class/Interface
+```
+
+---
+
+## Tier 3 — LSP
+
+| Relationship | Mechanism |
+|--------------|-----------|
+| `CALLS` | outgoing call hierarchy |
+| `SETS` / `GETS` | document highlight writes/reads |
+
+Line-range matching identical to PHASE2_IMPLEMENTATION semantics but keyed by **`repo_name` + path**.
+
+---
+
+## Tier 2 DAG
+
+| Stage | Relationships / labels |
+|-------|-------------------------|
+| 2a | `InnerClass`, `INSTANTIATES` |
+| 2b | `OVERRIDES`, `BELONGS_TO` |
+| 2c | `External`, `SPAWNS` |
+
+Sample `InnerClass`:
+
+```text
+MATCH (parent:Class)-[:CONTAINS]->(child:Class)
+WHERE child.repo_name = $repo
+```
+
+---
+
+## Planned future edges
+
+| # | Relationship | Notes |
+|---|---------------|-------|
+| 11 | `EXCEPTION_FLOW` | try/catch graphing |
+| 12 | `DATA_FLOW` | data dependence |
+
+---
+
+## Common properties
+
+Includes `order`, `line`, `column`, optional `direct`/`static_resolution`, `member_name`.
