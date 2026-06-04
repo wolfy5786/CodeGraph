@@ -69,6 +69,37 @@ class JobStatusResponse(BaseModel):
     graph: str
     created_at: str
     updated_at: str
+    update_info: Optional["UpdateStatus"] = None
+
+
+# ---------------------------------------------------------------------------
+# Update operations
+# ---------------------------------------------------------------------------
+
+
+class UpdateRequest(BaseModel):
+    created: list[str] = Field(default_factory=list)
+    updated: list[str] = Field(default_factory=list)
+    deleted: list[str] = Field(default_factory=list)
+
+
+class UpdateAccepted(BaseModel):
+    repo_id: str
+    queued_as: str  # check_update | update | recreate
+    position: int
+
+
+class UpdateStatus(BaseModel):
+    job_type: str   # check_update | update | recreate
+    state: str      # queued | snapshot | recreating | processing | done | failed
+    update_in_progress: bool = False
+
+
+class PollResponse(BaseModel):
+    repo_id: str
+    completed_at: str
+    outcome: str    # success | failed
+    data: dict = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
