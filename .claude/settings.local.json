@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"d:/SanJose/personal_projects/rag_protoypes/prototype_4/services/ingestion-worker/src\" && echo \"created\")"
+    ],
+    "additionalDirectories": [
+      "d:\\SanJose\\personal_projects\\rag_protoypes\\prototype_4\\services\\ingestion-worker"
+    ]
+  }
+}
