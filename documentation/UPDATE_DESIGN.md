@@ -94,7 +94,49 @@ All paths are relative to the repository root registered at ingestion time. All 
 
 ### 4.1 Queue mechanism
 
-The exact queue backend (asyncio queue, Redis list, etc.) is **TBD**. The combining and dequeue semantics below are backend-agnostic.
+The queue is implemented as **per-repo job slots over asyncio primitives** — no external broker (no Redis queue, no Celery, no ARQ).
+
+**Why not a traditional queue backend:**  
+The combining rules in §4.2 require reading and conditionally mutating the pending entry atomically. Off-the-shelf queues (FIFO `asyncio.Queue`, Redis list) do not support in-place mutation of waiting items. More fundamentally, the combining rules reduce maximum queue depth per repo to **1** — there is never more than one pending entry per repo after collapsing. This is a single pending slot with replace/merge semantics, not a queue.
+
+**Per-repo slot structure (`RepoSlot`):**
+
+```python
+@dataclass
+class RepoSlot:
+    pending: Optional[Job]    # at most 1 pending job after combining; None if idle
+    slot_lock: asyncio.Lock   # protects `pending` during combine writes (enqueue path)
+    write_lock: asyncio.Lock  # held during graph mutation — exclusive write, reads served from snapshot
+    wakeup: asyncio.Event     # set when a job is enqueued; wakes the per-repo worker coroutine
+    completion: asyncio.Event # set when mutation finishes; unblocks long-poll subscribers (§6)
+```
+
+One `RepoSlot` is created lazily on first enqueue for a repo and lives for the daemon lifetime. Slots for different repos are fully independent; their worker coroutines run concurrently.
+
+**Enqueue path (inside an API handler):**
+
+1. Acquire `slot_lock`.
+2. Apply combining rule (§4.2) against current `pending` — merge, replace, or discard.
+3. Write the new (or merged) `pending`; preserve earliest arrival timestamp if collapsing.
+4. Release `slot_lock`; fire `wakeup`.
+5. Return `202` with `position` (0 = currently processing, 1 = waiting in slot).
+
+**Worker coroutine (one per repo, started on first enqueue):**
+
+1. `await wakeup` — blocks until a job arrives.
+2. Acquire `slot_lock`; atomically take `pending` (set to `None`); release `slot_lock`.
+3. Acquire `write_lock`; save snapshot (§5.1).
+4. Execute the job (`recreate` pipeline, or `check_update`/`update` TBD).
+5. Release `write_lock`; delete snapshot; fire `completion`.
+6. Loop back to step 1.
+
+**Long-poll integration (§6):**
+
+```python
+await asyncio.wait_for(slot.completion.wait(), timeout=timeout_seconds)
+```
+
+The `completion` event is cleared at the start of each new job and set on finish, so late-arriving poll requests that miss a completion cycle simply wait for the next one.
 
 There is **one logical queue per repo ID**. Requests for different repos are independent and may be processed concurrently.
 
