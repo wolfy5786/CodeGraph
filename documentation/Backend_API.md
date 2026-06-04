@@ -40,6 +40,17 @@ Responses return JSON; errors use HTTP problem-detail style `{ "detail": "..." }
 | `POST` | `/api/v1/graphs/{name}/repositories/{repo}/ingest` | Kick off Phase 1+2 ingestion; SSE by `Accept` or `text/event-stream` |
 | `GET` | `/api/v1/graphs/{name}/repositories/{repo}/status` | Current job state machine (`queued`, `phase1`, `phase2`, `embedding?`, `done`, `failed`) |
 
+### Update operations (async queue — see [UPDATE_DESIGN.md](UPDATE_DESIGN.md))
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/graphs/{name}/repositories/{repo}/check-update` | Enqueue auto-detect delta; returns `202 Accepted` |
+| `POST` | `/api/v1/graphs/{name}/repositories/{repo}/update` | Enqueue explicit file-delta manifest; returns `202 Accepted` |
+| `POST` | `/api/v1/graphs/{name}/repositories/{repo}/recreate` | Enqueue full teardown + re-ingest; returns `202 Accepted` |
+| `GET` | `/api/v1/graphs/{name}/repositories/{repo}/updates/poll` | Long-poll: holds until current update cycle completes, then delivers result |
+
+All update requests are **non-blocking** — they enqueue a job and return immediately. Concurrent reads during an update are served from a saved snapshot with `"update_in_progress": true` metadata. See [UPDATE_DESIGN.md](UPDATE_DESIGN.md) for queue combining rules, read-lock semantics, and long-poll behavior.
+
 ### Attach repository (`POST .../repositories`)
 
 ```json

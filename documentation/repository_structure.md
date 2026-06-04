@@ -24,6 +24,7 @@ codegraph/
 ├── DESKTOP_ARCHITECTURE.md
 ├── PHASE1_IMPLEMENTATION.md
 ├── PHASE2_IMPLEMENTATION.md
+├── UPDATE_DESIGN.md                # Update queue, locking, long-poll, and recreate design
 ├── DEPLOYMENT_CHECKLIST.md         # Desktop install checklist
 ├── repository_structure.md         # This file
 ├── docker-compose.yml              # Falkor (+ optional bundled services once implemented)

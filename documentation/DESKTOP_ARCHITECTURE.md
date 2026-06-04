@@ -34,7 +34,7 @@ flowchart LR
     Daemon --> IW --> F
 ```
 
-**File watcher stub** (`services/ingestion-worker/src/watcher/`) attaches after incremental design merges (see README TBD).
+**LSP watcher** (`services/ingestion-worker/src/watcher/`) monitors the file system and emits `update` (delta manifest) requests to the async update queue. It cannot issue `check_update` or `recreate` — those are reserved for CLI, MCP, and REST callers. See [UPDATE_DESIGN.md](UPDATE_DESIGN.md) for the full surface permission table.
 
 ---
 
@@ -85,7 +85,8 @@ MCP transports only JSON payloads + optional streaming logs; MCP never opens Fal
 | routers/graphs.py | Falkor lifecycle + bookkeeping |
 | routers/repositories.py | Repo registry + ingestion triggers |
 | workers/scheduler.py *(future)* | Queue Phase jobs; degrade to asyncio tasks early on |
-| watcher hookups | enqueue delta jobs (design TBD) |
+| workers/update_queue.py *(future)* | Per-repo async update queue with combining rules; semaphore + snapshot on dequeue (see [UPDATE_DESIGN.md](UPDATE_DESIGN.md)) |
+| watcher hookups | Emit `update` delta requests to the update queue |
 
 ---
 
@@ -99,5 +100,6 @@ Assume **trusted operator machine**. Daemon binds localhost; no auth tokens. Exp
 
 - Main overview: [`README.md`](README.md)
 - REST contract: [`Backend_API.md`](Backend_API.md)
+- Update queue & locking design: [`UPDATE_DESIGN.md`](UPDATE_DESIGN.md)
 - Repo layout: [`repository_structure.md`](repository_structure.md)
 - Falkor operations: [`falkor/README.md`](falkor/README.md)
