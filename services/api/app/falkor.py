@@ -176,6 +176,28 @@ class FalkorClient:
             for row in res.result_set
         ]
 
+    def get_repo_local_path(self, graph_name: str, repo_name: str) -> str | None:
+        """Return local_path for the registered repository, or None if not found."""
+        try:
+            res = self._run(
+                graph_name,
+                "MATCH (r:CodeRepository {name: $rn, graph_name: $gn}) RETURN r.local_path",
+                {"rn": repo_name, "gn": graph_name},
+            )
+            rows = res.result_set
+            return rows[0][0] if rows else None
+        except Exception as err:
+            logger.error(
+                "get_repo_local_path failed",
+                extra={
+                    "service": _SERVICE,
+                    "graph": graph_name,
+                    "repo": repo_name,
+                    "error": str(err),
+                },
+            )
+            return None
+
     def delete_repo(self, graph_name: str, repo_name: str) -> None:
         self._run(graph_name, "MATCH (n {repo_name: $rn}) DETACH DELETE n", {"rn": repo_name})
         self._run(

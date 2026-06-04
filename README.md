@@ -35,7 +35,7 @@ The app assumes a **trusted single-user machine** bound to localhost; there is n
 - **Local-first** — one FalkorDB container; workspace isolation via **named graphs** inside that instance.
 - **Multiple graphs** — create several independent workspaces; each can attach **many** local repository roots (`CodeRepository`).
 - **Absolute paths only for ingestion** — you register the exact directory on disk (`CodeRepository.local_path`).
-- **Two-phase indexing** — Phase 1: structural skeleton + SCIP-derived nodes and `CONTAINS`; Phase 2: tiers (SCIP+kinds+regex → LSP-heavy edges → graph-dependent DAG steps); see [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md), [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md).
+- **Three-phase indexing** — Phase 0: filesystem scan, file classification, content hashing, structural graph write; Phase 1: SCIP-derived code-symbol nodes and `CONTAINS`; Phase 2: tiers (SCIP+kinds+regex → LSP-heavy edges → graph-dependent DAG steps); see [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md), [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md), [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md).
 - **Editors** — VS Code extension for dashboard-style actions + jump-to-source; any MCP-capable editor (Cursor, Claude Desktop, JetBrains, Zed, Neovim MCP clients, …) talks to the **same local API** via the MCP shim.
 - **Local web dashboard** — optional UI served alongside the API (ingestion progress, graphs, repos, future query UI).
 
@@ -80,9 +80,10 @@ flowchart TB
 ### Indexing overview
 
 1. **Register** a graph workspace and attach one or more `CodeRepository` records with **`local_path`**.
-2. **Phase 1** builds `:Graph → :CodeRepository → :Root → (:Folder|:File)` and, for analyzable sources, runs **SCIP** to populate code nodes under each `:File` with `CONTAINS` chains down to nested symbols.
-3. **Phase 2** runs the tier DAG: Tier 1 (SCIP `SymbolKind` + relationships + regex), Tier 3 (LSP call/hover/definition/highlight), Tier 2 (sequential InnerClass / OVERRIDES / External / SPAWNS, …).
-4. Queries (when designed) execute **only within the selected FalkorDB named graph**.
+2. **Phase 0** walks the filesystem, classifies every file by extension, hashes file content (SHA-256), and writes the complete structural skeleton — `:Root → (:Folder|:File)` — to FalkorDB in a single batch. `content_hash` on each `:File` node is used by the update pipeline to detect modifications.
+3. **Phase 1** takes the `SourceFile` entries from Phase 0 and runs **SCIP** to populate code-symbol nodes under each `:File` with `CONTAINS` chains down to nested symbols.
+4. **Phase 2** runs the tier DAG: Tier 1 (SCIP `SymbolKind` + relationships + regex), Tier 3 (LSP call/hover/definition/highlight), Tier 2 (sequential InnerClass / OVERRIDES / External / SPAWNS, …).
+5. Queries (when designed) execute **only within the selected FalkorDB named graph**.
 
 ---
 
@@ -111,9 +112,10 @@ flowchart LR
 
 ---
 
-## Two-phase ingestion (DAG)
+## Three-phase ingestion (DAG)
 
-- **Phase 1** — Structural + SCIP: create graph skeleton, classify files by extension (`File`, `Dockerfile`, …), ingest whole-file tertiary nodes without SCIP/LSP embedding, emit SCIP-derived code nodes + `CONTAINS`, batch-write to FalkorDB.
+- **Phase 0** — Structural skeleton: walk the filesystem, classify every file by extension, compute a SHA-256 `content_hash` for each file, write all `Root / Folder / File` nodes and `CONTAINS` edges to FalkorDB in a single batch. See [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md).
+- **Phase 1** — SCIP extraction: for each `SourceFile` node produced by Phase 0, run the language-specific SCIP indexer, parse `index.scip`, emit code-symbol nodes + `CONTAINS` edges, batch-write to FalkorDB. See [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md).
 - **Phase 2** — Same Tier 1 → Tier 3 → Tier 2 DAG as documented in [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md), with Tier 1 driven primarily by SCIP payloads and Tier 3 by LSP.
 
 ---
@@ -130,7 +132,7 @@ flowchart LR
 | MCP | Python MCP SDK (stdio server calling local REST) |
 | Web dashboard | React 18 + TypeScript + Vite (served on localhost with the daemon) |
 | VS Code extension | TypeScript VS Code Extension API |
-| Orchestration docs | PHASE1 / PHASE2, [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md), [Backend_API.md](Backend_API.md) |
+| Orchestration docs | PHASE0 / PHASE1 / PHASE2, [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md), [Backend_API.md](Backend_API.md) |
 
 ---
 
@@ -225,7 +227,8 @@ See [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) for a fuller install chec
 |-----|----------|
 | [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md) | Process model, CLI/MCP/route mapping |
 | [Backend_API.md](Backend_API.md) | REST surface (localhost) |
-| [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md) | Phase 1 + Falkor indexes |
+| [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md) | Phase 0: filesystem scan, classification, content hashing, structural graph write |
+| [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md) | Phase 1: SCIP extraction + code-symbol graph write |
 | [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md) | Tier DAG on FalkorDB |
 | [core_system/Retrival_system_README.md](core_system/Retrival_system_README.md) | Retrieval notes + **Query TBD** |
 | [core_system/documentation/Nodes.txt](core_system/documentation/Nodes.txt) | Label reference |

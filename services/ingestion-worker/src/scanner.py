@@ -1,7 +1,8 @@
-"""Phase 1 filesystem scanner — produces structural skeleton for GraphWriter."""
+"""Filesystem scanner — produces Phase 0 structural skeleton for GraphWriter."""
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
@@ -35,6 +36,22 @@ _DOC_EXTS: frozenset[str] = frozenset({".md", ".txt", ".rst", ".adoc"})
 _SQL_EXTS: frozenset[str] = frozenset({".sql", ".cql", ".cypher", ".mongo", ".hql"})
 
 _CICD_EXACT_NAMES: frozenset[str] = frozenset({"Jenkinsfile", ".gitlab-ci.yml"})
+
+
+def hash_file(abs_path: str) -> str:
+    """SHA-256 hex digest of file bytes. Returns empty string if the file is unreadable."""
+    try:
+        h = hashlib.sha256()
+        with open(abs_path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError as err:
+        logger.warning(
+            "Could not hash file; content_hash set to empty string",
+            extra={"service": "scanner", "path": abs_path, "error": str(err)},
+        )
+        return ""
 
 
 def _is_cicd(rel_posix: str, filename: str) -> bool:
@@ -101,6 +118,7 @@ class FileNode:
     extra_labels: list[str]
     parent_id: str
     order: int          # position among siblings, alphabetical
+    content_hash: str   # SHA-256 hex digest of raw file bytes at scan time; "" if unreadable
 
     @property
     def is_source(self) -> bool:
@@ -230,4 +248,5 @@ class Scanner:
                     extra_labels=extra_labels,
                     parent_id=parent_id,
                     order=order,
+                    content_hash=hash_file(str(child_abs)),
                 ))

@@ -53,7 +53,6 @@ class RepoListResponse(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    local_path: str
     options: dict = Field(default_factory=dict)
 
 
@@ -69,6 +68,8 @@ class JobStatusResponse(BaseModel):
     graph: str
     created_at: str
     updated_at: str
+    phase: Optional[str] = None
+    error: Optional[str] = None
     update_info: Optional["UpdateStatus"] = None
 
 

@@ -2,6 +2,9 @@
 
 Keyed by (graph_name, repo_name). A real implementation would persist to
 Redis or a sqlite sidecar; this stub is intentionally ephemeral.
+
+Status lifecycle:
+    queued → phase0_running → done | failed
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ async def create_job(graph: str, repo: str) -> str:
             "repo": repo,
             "created_at": ts,
             "updated_at": ts,
+            "phase": None,
+            "error": None,
         }
     return job_id
 
@@ -43,3 +48,23 @@ async def get_job(graph: str, repo: str) -> Optional[dict]:
     """Return the most recent job entry for (graph, repo), or None."""
     async with _lock:
         return _store.get(_key(graph, repo))
+
+
+async def update_job(
+    graph: str,
+    repo: str,
+    status: str,
+    phase: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Update status (and optionally phase / error) on the current job."""
+    async with _lock:
+        entry = _store.get(_key(graph, repo))
+        if entry is None:
+            return
+        entry["status"] = status
+        entry["updated_at"] = _now()
+        if phase is not None:
+            entry["phase"] = phase
+        if error is not None:
+            entry["error"] = error

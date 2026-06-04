@@ -11,7 +11,7 @@
 Instructs the system to auto-detect what has changed in the repository since the last ingestion. The system is responsible for discovering the delta; the caller does not supply file lists.
 
 - **When used**: caller knows the repo may have changed but does not know which files.
-- **Post-dequeue behavior**: **TBD** (diff strategy against last-known graph state).
+- **Post-dequeue behavior**: **TBD** (compare on-disk SHA-256 of each tracked file against the `content_hash` stored on the corresponding `:File` node in FalkorDB to produce a dirty-file set; then apply incremental graph reconciliation).
 
 ### 1.2 `update`
 
@@ -252,13 +252,13 @@ Callers should treat `"outcome": "failed"` as a signal to re-query status for er
 
 1. Acquire the read lock and save the snapshot (§ 5.1–5.2).
 2. Delete all nodes and relationships in FalkorDB that carry `repo_name = <repo>`.
-3. Invoke the standard two-phase ingestion pipeline (Phase 1 filesystem skeleton → Phase 2 SCIP + LSP enrichment) exactly as `POST .../ingest` does.
+3. Invoke the standard three-phase ingestion pipeline (Phase 0 filesystem scan + structural graph write → Phase 1 SCIP extraction → Phase 2 LSP enrichment) exactly as `POST .../ingest` does.
 4. On completion, release the lock and delete the snapshot (§ 5.4).
 
 State machine extension for the existing `status` endpoint:
 
 ```
-queued → snapshot → recreating → phase1 → phase2 → done | failed
+queued → snapshot → recreating → phase0 → phase1 → phase2 → done | failed
 ```
 
 ---
@@ -283,5 +283,5 @@ Post-dequeue logic for these two operations (diff strategy, incremental graph re
 ## Related Docs
 
 - REST contract (existing endpoints): [Backend_API.md](Backend_API.md)
-- Ingestion pipeline: [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md), [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md)
+- Ingestion pipeline: [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md), [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md), [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md)
 - Architecture & surfaces: [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md)

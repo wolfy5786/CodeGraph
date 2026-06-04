@@ -209,3 +209,13 @@ async def get_slot(graph: str, repo: str) -> Optional[RepoSlot]:
     key = _slot_key(graph, repo)
     async with _registry_lock:
         return _slots.get(key)
+
+
+async def get_or_create_slot(graph: str, repo: str) -> RepoSlot:
+    """Return (or create) the RepoSlot for (graph, repo).
+
+    Creating the slot also starts the per-repo update worker coroutine.
+    Used by IngestionService to acquire the shared write_lock without
+    going through the update job queue.
+    """
+    return await _get_or_create_slot(graph, repo)

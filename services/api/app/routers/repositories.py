@@ -1,4 +1,4 @@
-"""Repository registration, ingest, status, and update stubs — /api/v1/graphs/{name}/repositories."""
+"""Repository registration, ingest, status, and update endpoints — /api/v1/graphs/{name}/repositories."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-from app import job_store, update_store
+from app import ingestion_service, job_store, update_store
 from app.falkor import FalkorClient
 from app.models import (
     AttachRepoRequest,
@@ -149,7 +149,7 @@ async def delete_repo(name: str, repo: str, request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Ingest (stub — returns 202 + job ID; no worker is dispatched yet)
+# Ingest — Phase 0 filesystem scan + structural graph write
 # ---------------------------------------------------------------------------
 
 
@@ -166,9 +166,38 @@ async def trigger_ingest(
     _require_repo(falkor, name, repo)
     await _check_write_lock(name, repo)
 
+    # Reject if a job is already queued or running for this repo.
+    existing = await job_store.get_job(graph=name, repo=repo)
+    if existing and existing.get("status") not in ("done", "failed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Ingest job '{existing['job_id']}' is already "
+                f"{existing['status']} for '{repo}' in graph '{name}'"
+            ),
+        )
+
+    local_path = falkor.get_repo_local_path(name, repo)
+    if local_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Repository '{repo}' has no local_path registered in graph '{name}'",
+        )
+
     job_id = await job_store.create_job(graph=name, repo=repo)
+
+    asyncio.create_task(
+        ingestion_service.run_ingest(
+            graph=name,
+            repo=repo,
+            local_path=local_path,
+            job_id=job_id,
+        ),
+        name=f"ingest:{name}:{repo}:{job_id}",
+    )
+
     logger.info(
-        "Ingest job accepted (stub — worker not yet wired)",
+        "Ingest job accepted",
         extra={"service": _SERVICE, "graph": name, "repo": repo, "job_id": job_id},
     )
     return IngestAccepted(job_id=job_id, status="queued")
