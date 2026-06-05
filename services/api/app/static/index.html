@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeGraph</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --surface2: #1c2128;
+      --border:   #30363d;
+      --accent:   #58a6ff;
+      --success:  #3fb950;
+      --error:    #f85149;
+      --warn:     #d29922;
+      --text:     #e6edf3;
+      --text2:    #8b949e;
+      --mono:     'SF Mono', 'Consolas', 'Menlo', monospace;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .logo-icon {
+      width: 26px; height: 26px;
+      background: var(--accent);
+      border-radius: 5px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: #0d1117;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text2);
+      flex-shrink: 0;
+    }
+    .status-dot.ok       { background: var(--success); }
+    .status-dot.degraded { background: var(--warn); }
+    .status-dot.error    { background: var(--error); }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────────────────────── */
+    aside {
+      width: 224px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 14px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .graph-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+
+    .graph-item {
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text2);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-left: 2px solid transparent;
+      transition: background 0.1s, color 0.1s;
+      user-select: none;
+    }
+    .graph-item:hover  { background: var(--surface2); color: var(--text); }
+    .graph-item.active { border-left-color: var(--accent); background: var(--surface2); color: var(--text); }
+
+    .sidebar-footer {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Main ─────────────────────────────────────────────────────────────── */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 32px;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 60%;
+      color: var(--text2);
+      gap: 12px;
+      text-align: center;
+    }
+
+    .empty-state svg { opacity: 0.25; margin-bottom: 4px; }
+    .empty-state h2  { font-size: 18px; font-weight: 500; }
+    .empty-state p   { font-size: 13px; }
+
+    /* ── Graph header ────────────────────────────────────────────────────── */
+    .graph-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+
+    .graph-name {
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .stat-badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      color: var(--text2);
+      background: var(--surface2);
+    }
+
+    /* ── Section ──────────────────────────────────────────────────────────── */
+    .section { margin-bottom: 32px; }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text2);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── Repo card ────────────────────────────────────────────────────────── */
+    .repo-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 10px;
+    }
+
+    .repo-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+
+    .repo-name { font-size: 15px; font-weight: 600; }
+    .repo-path {
+      font-size: 12px;
+      color: var(--text2);
+      font-family: var(--mono);
+      margin-top: 3px;
+    }
+
+    .repo-meta {
+      font-size: 12px;
+      color: var(--text2);
+      margin-top: 10px;
+    }
+
+    .repo-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Status chips ─────────────────────────────────────────────────────── */
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 9px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .chip.done    { background: rgba(63,185,80,0.15);  color: var(--success); }
+    .chip.running { background: rgba(88,166,255,0.15); color: var(--accent); }
+    .chip.queued  { background: rgba(210,153,34,0.15); color: var(--warn); }
+    .chip.failed  { background: rgba(248,81,73,0.15);  color: var(--error); }
+    .chip.none    { background: var(--surface); color: var(--text2); border: 1px solid var(--border); }
+
+    /* ── Buttons ──────────────────────────────────────────────────────────── */
+    .btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      transition: background 0.1s, border-color 0.1s;
+      white-space: nowrap;
+    }
+    .btn:hover    { background: var(--surface2); border-color: var(--text2); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #0d1117; }
+    .btn-primary:hover { background: #79b8ff; border-color: #79b8ff; }
+
+    .btn-danger { color: var(--error); }
+    .btn-danger:hover { border-color: var(--error); background: rgba(248,81,73,0.08); }
+
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* ── Forms ────────────────────────────────────────────────────────────── */
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text2);
+    }
+
+    input[type="text"] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 7px 10px;
+      outline: none;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    input[type="text"]:focus { border-color: var(--accent); }
+
+    /* ── Coming soon cards ────────────────────────────────────────────────── */
+    .cs-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      opacity: 0.65;
+    }
+    .cs-card-title { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+    .cs-card-sub   { font-size: 12px; color: var(--text2); }
+
+    .cs-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(210,153,34,0.12);
+      color: var(--warn);
+      border: 1px solid rgba(210,153,34,0.3);
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-left: 12px;
+    }
+
+    /* ── Modal ────────────────────────────────────────────────────────────── */
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .overlay.hidden { display: none; }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      width: 460px;
+      max-width: 95vw;
+    }
+    .modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 18px; }
+    .modal .field { margin-bottom: 14px; }
+
+    .modal-footer {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+
+    .confirm-text {
+      font-size: 13px;
+      color: var(--text2);
+      line-height: 1.6;
+      margin-bottom: 4px;
+    }
+
+    /* ── Status panel ────────────────────────────────────────────────────── */
+    .status-panel {
+      margin-top: 12px;
+      padding: 12px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    .kv-row { display: flex; gap: 8px; font-size: 12px; font-family: var(--mono); margin-bottom: 4px; }
+    .kv-row:last-child { margin-bottom: 0; }
+    .kv-k { color: var(--text2); min-width: 130px; flex-shrink: 0; }
+    .kv-v { color: var(--text); word-break: break-all; }
+    .kv-v.err { color: var(--error); }
+
+    /* ── Toast ────────────────────────────────────────────────────────────── */
+    #toasts {
+      position: fixed;
+      bottom: 20px; right: 20px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 200;
+    }
+
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: var(--text);
+      animation: slideUp 0.2s ease;
+      max-width: 300px;
+    }
+    .toast.success { border-color: var(--success); }
+    .toast.error   { border-color: var(--error); color: var(--error); }
+
+    @keyframes slideUp {
+      from { transform: translateY(12px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+
+    /* ── Divider ──────────────────────────────────────────────────────────── */
+    hr.divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+    /* ── Utilities ────────────────────────────────────────────────────────── */
+    .hidden  { display: none !important; }
+    .mt-12   { margin-top: 12px; }
+    .muted   { color: var(--text2); }
+    .small   { font-size: 13px; }
+
+    /* ── Scrollbar ────────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ───────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">CG</div>
+    CodeGraph
+  </div>
+  <div class="header-right">
+    <div class="status-indicator">
+      <div class="status-dot" id="health-dot"></div>
+      <span id="health-label">connecting…</span>
+    </div>
+    <span id="version-label" class="muted"></span>
+  </div>
+</header>
+
+<!-- ── Layout ───────────────────────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside>
+    <div class="sidebar-header">Graphs</div>
+    <div class="graph-list" id="graph-list"></div>
+    <div class="sidebar-footer">
+      <button class="btn btn-primary" style="width:100%" onclick="openCreateModal()">+ New Graph</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main>
+    <!-- Empty state -->
+    <div class="empty-state" id="empty-state">
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+        <circle cx="12" cy="12" r="3"/>
+        <circle cx="4"  cy="6"  r="2"/>
+        <circle cx="20" cy="6"  r="2"/>
+        <circle cx="4"  cy="18" r="2"/>
+        <circle cx="20" cy="18" r="2"/>
+        <line x1="6"  y1="6"  x2="10" y2="11"/>
+        <line x1="18" y1="6"  x2="14" y2="11"/>
+        <line x1="6"  y1="18" x2="10" y2="13"/>
+        <line x1="18" y1="18" x2="14" y2="13"/>
+      </svg>
+      <h2>No graph selected</h2>
+      <p>Pick a graph from the sidebar or create a new one.</p>
+    </div>
+
+    <!-- Graph view (populated dynamically) -->
+    <div id="graph-view" class="hidden"></div>
+  </main>
+
+</div>
+
+<!-- ── Modal overlay ───────────────────────────────────────────────────── -->
+<div class="overlay hidden" id="overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- ── Toasts ──────────────────────────────────────────────────────────── -->
+<div id="toasts"></div>
+
+<script>
+'use strict';
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let selectedGraph = null;
+const pollers = {};   // "graph:repo" -> interval id
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (res.status === 204) return null;
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = json.detail || res.statusText || `HTTP ${res.status}`;
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return json;
+}
+
+const GET  = (p)    => api('GET',    p);
+const POST = (p, b) => api('POST',   p, b ?? {});
+const DEL  = (p)    => api('DELETE', p);
+
+// ---------------------------------------------------------------------------
+// Toast
+// ---------------------------------------------------------------------------
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
+
+// ---------------------------------------------------------------------------
+// Modal
+// ---------------------------------------------------------------------------
+function openModal(html) {
+  document.getElementById('modal-body').innerHTML = html;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+function closeModal(evt) {
+  if (!evt || evt.target === document.getElementById('overlay')) {
+    document.getElementById('overlay').classList.add('hidden');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Health + Version
+// ---------------------------------------------------------------------------
+async function refreshHealth() {
+  try {
+    const [h, v] = await Promise.all([GET('/health'), GET('/api/v1/version')]);
+    const dot = document.getElementById('health-dot');
+    dot.className = `status-dot ${h.status}`;
+    document.getElementById('health-label').textContent =
+      h.status === 'ok' ? 'Connected' : `Degraded — FalkorDB: ${h.falkordb}`;
+    document.getElementById('version-label').textContent = `v${v.version}`;
+  } catch {
+    document.getElementById('health-dot').className = 'status-dot error';
+    document.getElementById('health-label').textContent = 'API unreachable';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Graph list (sidebar)
+// ---------------------------------------------------------------------------
+async function loadGraphList() {
+  const list = document.getElementById('graph-list');
+  try {
+    const data = await GET('/api/v1/graphs');
+    if (!data.graphs.length) {
+      list.innerHTML = '<div class="graph-item muted" style="cursor:default;font-size:12px">No graphs yet</div>';
+      return;
+    }
+    list.innerHTML = '';
+    data.graphs.forEach(name => {
+      const item = document.createElement('div');
+      item.className = `graph-item${selectedGraph === name ? ' active' : ''}`;
+      item.dataset.name = name;
+      item.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0">
+          <circle cx="12" cy="12" r="3"/>
+          <circle cx="4" cy="6" r="2"/>
+          <circle cx="20" cy="6" r="2"/>
+          <line x1="6" y1="6" x2="10" y2="11"/>
+          <line x1="18" y1="6" x2="14" y2="11"/>
+        </svg>
+        ${esc(name)}`;
+      item.onclick = () => selectGraph(name);
+      list.appendChild(item);
+    });
+  } catch (err) {
+    list.innerHTML = `<div class="graph-item muted small" style="cursor:default">Error: ${esc(err.message)}</div>`;
+  }
+}
+
+async function selectGraph(name) {
+  selectedGraph = name;
+  document.querySelectorAll('.graph-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.name === name)
+  );
+  await renderGraphView(name);
+}
+
+// ---------------------------------------------------------------------------
+// Graph view
+// ---------------------------------------------------------------------------
+async function renderGraphView(name) {
+  const view  = document.getElementById('graph-view');
+  const empty = document.getElementById('empty-state');
+  empty.classList.add('hidden');
+  view.classList.remove('hidden');
+  view.innerHTML = '<p class="muted small">Loading…</p>';
+
+  try {
+    const stats = await GET(`/api/v1/graphs/${enc(name)}`);
+    view.innerHTML = buildGraphHTML(stats);
+    await loadRepos(name);
+  } catch (err) {
+    view.innerHTML = `<p class="muted small">Failed to load: ${esc(err.message)}</p>`;
+  }
+}
+
+function buildGraphHTML(s) {
+  return `
+    <div class="graph-header">
+      <div>
+        <div class="graph-name">${esc(s.name)}</div>
+        <div class="stat-badges" id="stat-badges">
+          ${statBadges(s)}
+        </div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="confirmDeleteGraph(${q(s.name)})">Delete Graph</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="4" rx="1"/>
+          <rect x="3" y="10" width="18" height="4" rx="1"/>
+          <rect x="3" y="17" width="18" height="4" rx="1"/>
+        </svg>
+        Repositories
+      </div>
+      <div id="repo-list"></div>
+      <div class="mt-12">
+        <button class="btn" onclick="openAttachModal()">+ Attach Repository</button>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section">
+      <div class="section-title">
+        Coming Soon
+        <span class="cs-badge">Not Implemented</span>
+      </div>
+
+      <div class="cs-card">
+        <div>
+          <div class="cs-card-title">Update Operations</div>
+          <div class="cs-card-sub">check-update · update · recreate — incremental graph sync</div>
+        </div>
+        <span class="cs-badge">Coming Soon</span>
+      </div>
+
+      <div class="cs-card">
+        <div>
+          <div class="cs-card-title">Graph Query Interface</div>
+          <div class="cs-card-sub">Run Cypher queries against the code graph</div>
+        </div>
+        <span class="cs-badge">Coming Soon</span>
+      </div>
+
+      <div class="cs-card">
+        <div>
+          <div class="cs-card-title">Live Update Stream</div>
+          <div class="cs-card-sub">Long-poll progress via /updates/poll</div>
+        </div>
+        <span class="cs-badge">Coming Soon</span>
+      </div>
+    </div>
+  `;
+}
+
+function statBadges(s) {
+  return `
+    <span class="badge">${s.repo_count} repos</span>
+    <span class="badge">${s.node_count.toLocaleString()} nodes</span>
+    <span class="badge">${s.edge_count.toLocaleString()} edges</span>
+  `;
+}
+
+async function refreshStats(graphName) {
+  try {
+    const s = await GET(`/api/v1/graphs/${enc(graphName)}`);
+    const el = document.getElementById('stat-badges');
+    if (el) el.innerHTML = statBadges(s);
+  } catch { /* best-effort */ }
+}
+
+// ---------------------------------------------------------------------------
+// Repositories
+// ---------------------------------------------------------------------------
+async function loadRepos(graphName) {
+  const list = document.getElementById('repo-list');
+  if (!list) return;
+  try {
+    const data = await GET(`/api/v1/graphs/${enc(graphName)}/repositories`);
+    if (!data.repositories.length) {
+      list.innerHTML = '<p class="muted small">No repositories attached yet.</p>';
+      return;
+    }
+    list.innerHTML = data.repositories.map(r => buildRepoCard(graphName, r)).join('');
+  } catch (err) {
+    list.innerHTML = `<p class="muted small">Failed to load repos: ${esc(err.message)}</p>`;
+  }
+}
+
+function buildRepoCard(graphName, repo) {
+  const cardId = `rc-${sid(repo.name)}`;
+  const ingested = repo.last_ingested_at
+    ? new Date(repo.last_ingested_at).toLocaleString()
+    : 'Never';
+  const initialChip = repo.last_ingested_at ? statusChip('done') : statusChip(null);
+
+  return `
+    <div class="repo-card" id="${cardId}">
+      <div class="repo-card-top">
+        <div>
+          <div class="repo-name">${esc(repo.name)}</div>
+          <div class="repo-path">${esc(repo.local_path)}</div>
+        </div>
+        <div id="${cardId}-chip">${initialChip}</div>
+      </div>
+      <div class="repo-meta">Last ingested: ${ingested}</div>
+      <div class="repo-actions">
+        <button class="btn btn-sm btn-primary"
+          onclick="triggerIngest(${q(graphName)}, ${q(repo.name)})">Ingest</button>
+        <button class="btn btn-sm"
+          onclick="toggleStatus(${q(graphName)}, ${q(repo.name)})">Status</button>
+        <button class="btn btn-sm btn-danger"
+          onclick="confirmDeleteRepo(${q(graphName)}, ${q(repo.name)})">Delete</button>
+      </div>
+      <div id="${cardId}-status" class="hidden"></div>
+    </div>
+  `;
+}
+
+function statusChip(status) {
+  const map = {
+    done:          ['done',    'Done'],
+    phase0_running:['running', 'Ingesting…'],
+    queued:        ['queued',  'Queued'],
+    failed:        ['failed',  'Failed'],
+  };
+  const [cls, label] = map[status] ?? ['none', 'Not ingested'];
+  return `<span class="chip ${cls}">${label}</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Ingest
+// ---------------------------------------------------------------------------
+async function triggerIngest(graphName, repoName) {
+  try {
+    const res = await POST(
+      `/api/v1/graphs/${enc(graphName)}/repositories/${enc(repoName)}/ingest`,
+      {}
+    );
+    toast(`Ingest queued — job ${res.job_id}`, 'success');
+    updateChip(repoName, 'queued');
+    startPoller(graphName, repoName);
+  } catch (err) {
+    toast(`Ingest failed: ${err.message}`, 'error');
+  }
+}
+
+function startPoller(graphName, repoName) {
+  const key = `${graphName}:${repoName}`;
+  if (pollers[key]) return;
+
+  pollers[key] = setInterval(async () => {
+    try {
+      const job = await GET(
+        `/api/v1/graphs/${enc(graphName)}/repositories/${enc(repoName)}/status`
+      );
+      updateChip(repoName, job.status);
+
+      if (job.status === 'done' || job.status === 'failed') {
+        clearInterval(pollers[key]);
+        delete pollers[key];
+
+        if (job.status === 'done') {
+          toast(`Ingest complete: ${repoName}`, 'success');
+        } else {
+          toast(`Ingest failed: ${repoName} — ${job.error ?? 'unknown'}`, 'error');
+        }
+
+        await loadRepos(graphName);
+        await refreshStats(graphName);
+      }
+    } catch { /* keep polling */ }
+  }, 2000);
+}
+
+function updateChip(repoName, status) {
+  const el = document.getElementById(`rc-${sid(repoName)}-chip`);
+  if (el) el.innerHTML = statusChip(status);
+}
+
+// ---------------------------------------------------------------------------
+// Status panel (toggle)
+// ---------------------------------------------------------------------------
+async function toggleStatus(graphName, repoName) {
+  const panel = document.getElementById(`rc-${sid(repoName)}-status`);
+  if (!panel) return;
+
+  if (!panel.classList.contains('hidden')) {
+    panel.classList.add('hidden');
+    return;
+  }
+
+  panel.innerHTML = '<p class="muted small" style="padding:8px 0">Loading…</p>';
+  panel.classList.remove('hidden');
+
+  try {
+    const job = await GET(
+      `/api/v1/graphs/${enc(graphName)}/repositories/${enc(repoName)}/status`
+    );
+    updateChip(repoName, job.status);
+    panel.innerHTML = `
+      <div class="status-panel">
+        <div class="kv-row"><span class="kv-k">job_id</span><span class="kv-v">${esc(job.job_id)}</span></div>
+        <div class="kv-row"><span class="kv-k">status</span><span class="kv-v">${esc(job.status)}</span></div>
+        <div class="kv-row"><span class="kv-k">phase</span><span class="kv-v">${esc(job.phase ?? '—')}</span></div>
+        <div class="kv-row"><span class="kv-k">created</span><span class="kv-v">${new Date(job.created_at).toLocaleString()}</span></div>
+        <div class="kv-row"><span class="kv-k">updated</span><span class="kv-v">${new Date(job.updated_at).toLocaleString()}</span></div>
+        ${job.error ? `<div class="kv-row"><span class="kv-k">error</span><span class="kv-v err">${esc(job.error)}</span></div>` : ''}
+      </div>`;
+  } catch (err) {
+    panel.innerHTML = `
+      <div class="status-panel">
+        <p class="muted small">${err.status === 404 ? 'Not ingested yet.' : esc(err.message)}</p>
+      </div>`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Create Graph modal
+// ---------------------------------------------------------------------------
+function openCreateModal() {
+  openModal(`
+    <h3>New Graph</h3>
+    <div class="field">
+      <label>Graph Name</label>
+      <input type="text" id="m-graph-name" placeholder="e.g. my-project">
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="createGraph()">Create</button>
+    </div>
+  `);
+  setTimeout(() => document.getElementById('m-graph-name')?.focus(), 40);
+}
+
+async function createGraph() {
+  const name = document.getElementById('m-graph-name')?.value?.trim();
+  if (!name) { toast('Name is required', 'error'); return; }
+  try {
+    await POST('/api/v1/graphs', { name });
+    closeModal();
+    toast(`Graph "${name}" created`, 'success');
+    await loadGraphList();
+    await selectGraph(name);
+  } catch (err) {
+    toast(`Failed: ${err.message}`, 'error');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Delete Graph modal
+// ---------------------------------------------------------------------------
+function confirmDeleteGraph(name) {
+  openModal(`
+    <h3>Delete Graph</h3>
+    <p class="confirm-text">
+      Permanently delete <strong>${esc(name)}</strong> and all its repositories, nodes, and edges?
+      This cannot be undone.
+    </p>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="deleteGraph(${q(name)})">Delete</button>
+    </div>
+  `);
+}
+
+async function deleteGraph(name) {
+  try {
+    await DEL(`/api/v1/graphs/${enc(name)}`);
+    closeModal();
+    toast(`Graph "${name}" deleted`);
+    selectedGraph = null;
+    document.getElementById('graph-view').classList.add('hidden');
+    document.getElementById('empty-state').classList.remove('hidden');
+    await loadGraphList();
+  } catch (err) {
+    toast(`Failed: ${err.message}`, 'error');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Attach Repo modal
+// ---------------------------------------------------------------------------
+function openAttachModal() {
+  openModal(`
+    <h3>Attach Repository</h3>
+    <div class="field">
+      <label>Repository Name</label>
+      <input type="text" id="m-repo-name" placeholder="e.g. my-repo">
+    </div>
+    <div class="field">
+      <label>Local Path</label>
+      <input type="text" id="m-repo-path" placeholder="e.g. /home/user/projects/my-repo">
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="attachRepo()">Attach</button>
+    </div>
+  `);
+  setTimeout(() => document.getElementById('m-repo-name')?.focus(), 40);
+}
+
+async function attachRepo() {
+  const name       = document.getElementById('m-repo-name')?.value?.trim();
+  const local_path = document.getElementById('m-repo-path')?.value?.trim();
+  if (!name || !local_path) { toast('Name and path are required', 'error'); return; }
+  try {
+    await POST(`/api/v1/graphs/${enc(selectedGraph)}/repositories`, { name, local_path });
+    closeModal();
+    toast(`Repository "${name}" attached`, 'success');
+    await loadRepos(selectedGraph);
+    await refreshStats(selectedGraph);
+  } catch (err) {
+    toast(`Failed: ${err.message}`, 'error');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Delete Repo modal
+// ---------------------------------------------------------------------------
+function confirmDeleteRepo(graphName, repoName) {
+  openModal(`
+    <h3>Delete Repository</h3>
+    <p class="confirm-text">
+      Remove <strong>${esc(repoName)}</strong> from <strong>${esc(graphName)}</strong>?
+      All associated nodes and edges will be deleted.
+    </p>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="deleteRepo(${q(graphName)}, ${q(repoName)})">Delete</button>
+    </div>
+  `);
+}
+
+async function deleteRepo(graphName, repoName) {
+  try {
+    await DEL(`/api/v1/graphs/${enc(graphName)}/repositories/${enc(repoName)}`);
+    closeModal();
+    toast(`Repository "${repoName}" deleted`);
+    await loadRepos(graphName);
+    await refreshStats(graphName);
+  } catch (err) {
+    toast(`Failed: ${err.message}`, 'error');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts
+// ---------------------------------------------------------------------------
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && !document.getElementById('overlay').classList.contains('hidden')) {
+    const primary = document.querySelector('.modal .btn-primary');
+    primary?.click();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Utils
+// ---------------------------------------------------------------------------
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function enc(s) { return encodeURIComponent(s); }
+
+// JSON.stringify then esc for safe inline onclick attribute values
+function q(s) { return JSON.stringify(String(s ?? '')); }
+
+// Safe CSS id fragment
+function sid(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+(async function init() {
+  await Promise.all([refreshHealth(), loadGraphList()]);
+  setInterval(refreshHealth, 30_000);
+}());
+</script>
+</body>
+</html>

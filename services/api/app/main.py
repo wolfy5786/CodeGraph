@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import logging.config
+import pathlib
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -11,6 +12,7 @@ from typing import Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import HTMLResponse
 
 from app.config import BUILD_VERSION
 from app.falkor import FalkorClient
@@ -96,6 +98,18 @@ async def timing_middleware(request: Request, call_next: Callable) -> Response:
 
 app.include_router(graphs.router, prefix="/api/v1")
 app.include_router(repositories.router, prefix="/api/v1")
+
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+
+_UI_HTML = pathlib.Path(__file__).parent / "static" / "index.html"
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def ui() -> HTMLResponse:
+    return HTMLResponse(_UI_HTML.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
