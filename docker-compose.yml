@@ -1,10 +1,11 @@
 services:
+
   falkordb:
     image: falkordb/falkordb:latest
     container_name: codegraph-falkor
     ports:
-      - "127.0.0.1:6379:6379"
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:6379:6379"   # expose to host for local dev/inspection
+      - "127.0.0.1:3000:3000"   # FalkorDB browser UI
     volumes:
       - falkordb_data:/data
     command: >
@@ -17,6 +18,33 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: codegraph-backend
+    environment:
+      FALKOR_HOST: falkordb
+      FALKOR_PORT: "6379"
+      API_HOST: "0.0.0.0"
+      API_PORT: "8765"
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    restart: unless-stopped
+    # Not exposed to the host — all traffic goes through the ui/nginx proxy
+
+  ui:
+    build:
+      context: .                          # repo root — both service paths are reachable
+      dockerfile: services/ui/Dockerfile
+    container_name: codegraph-ui
+    ports:
+      - "127.0.0.1:8765:80"             # same URL as manual dev: http://127.0.0.1:8765
+    depends_on:
+      - backend
     restart: unless-stopped
 
 volumes:
