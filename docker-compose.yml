@@ -22,8 +22,8 @@ services:
 
   backend:
     build:
-      context: ./services/api
-      dockerfile: Dockerfile
+      context: .                          # repo root — both service paths are reachable
+      dockerfile: services/api/Dockerfile
     container_name: codegraph-backend
     environment:
       FALKOR_HOST: falkordb

@@ -39,7 +39,7 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 _WORKER_SRC = str(
-    Path(__file__).resolve().parent.parent.parent / "ingestion-worker" / "src"
+    Path(__file__).resolve().parent.parent / "ingestion-worker" / "src"
 )
 if _WORKER_SRC not in sys.path:
     sys.path.insert(0, _WORKER_SRC)
