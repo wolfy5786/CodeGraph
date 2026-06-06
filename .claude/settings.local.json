@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir -p \"d:/SanJose/personal_projects/rag_protoypes/prototype_4/services/ingestion-worker/src\" && echo \"created\")"
+      "Bash(mkdir -p \"d:/SanJose/personal_projects/rag_protoypes/prototype_4/services/ingestion-worker/src\" && echo \"created\")",
+      "Bash(Get-ChildItem -Path \"d:\\\\SanJose\\\\personal_projects\\\\rag_protoypes\\\\prototype_4\" -Recurse -Directory)",
+      "Bash(Select-Object -First 100 FullName)",
+      "Bash(Sort-Object FullName)",
+      "PowerShell(head -100)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\SanJose\\\\personal_projects\\\\rag_protoypes\\\\prototype_4\" | Select-Object Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"Directory\"}else{\"File\"}}})"
     ],
     "additionalDirectories": [
       "d:\\SanJose\\personal_projects\\rag_protoypes\\prototype_4\\services\\ingestion-worker"

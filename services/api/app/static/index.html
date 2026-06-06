@@ -883,7 +883,7 @@ function confirmDeleteGraph(name) {
     </p>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-danger" onclick="deleteGraph(${q(name)})">Delete</button>
+      <button class="btn btn-danger" onclick='deleteGraph(${q(name)})'>Delete</button>
     </div>
   `);
 }
@@ -951,7 +951,7 @@ function confirmDeleteRepo(graphName, repoName) {
     </p>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-danger" onclick="deleteRepo(${q(graphName)}, ${q(repoName)})">Delete</button>
+      <button class="btn btn-danger" onclick='deleteRepo(${q(graphName)}, ${q(repoName)})'>Delete</button>
     </div>
   `);
 }
