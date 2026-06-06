@@ -30,6 +30,10 @@ services:
       FALKOR_PORT: "6379"
       API_HOST: "0.0.0.0"
       API_PORT: "8765"
+      REPOS_ROOT_HOST: ${REPOS_ROOT}
+      REPOS_ROOT_CONTAINER: /repos
+    volumes:
+      - ${REPOS_ROOT}:/repos:ro
     depends_on:
       falkordb:
         condition: service_healthy

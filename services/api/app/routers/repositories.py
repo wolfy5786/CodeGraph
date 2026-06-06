@@ -6,11 +6,13 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import PureWindowsPath
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app import ingestion_service, job_store, update_store
+from app.config import REPOS_ROOT_CONTAINER, REPOS_ROOT_HOST
 from app.falkor import FalkorClient
 from app.models import (
     AttachRepoRequest,
@@ -29,6 +31,25 @@ logger = logging.getLogger(__name__)
 _SERVICE = "api.repositories"
 
 router = APIRouter(tags=["repositories"])
+
+
+def _to_container_path(host_path: str) -> str:
+    """Translate a host-side path to its container-internal equivalent.
+
+    Uses PureWindowsPath for the host side so Windows drive letters and
+    backslashes are handled correctly even though the backend runs on Linux.
+    Returns the path unchanged when REPOS_ROOT_HOST is not configured (native run).
+    Raises ValueError if the path is not under the configured REPOS_ROOT_HOST.
+    """
+    if not REPOS_ROOT_HOST or not REPOS_ROOT_CONTAINER:
+        return host_path
+    try:
+        rel = PureWindowsPath(host_path).relative_to(PureWindowsPath(REPOS_ROOT_HOST))
+    except ValueError as err:
+        raise ValueError(
+            f"Path must be inside the configured REPOS_ROOT '{REPOS_ROOT_HOST}'"
+        ) from err
+    return REPOS_ROOT_CONTAINER.rstrip("/") + "/" + rel.as_posix()
 
 
 def _falkor(request: Request) -> FalkorClient:
@@ -75,7 +96,15 @@ async def attach_repo(name: str, body: AttachRepoRequest, request: Request) -> R
     falkor = _falkor(request)
     _require_graph(falkor, name)
 
-    if not os.path.isdir(body.local_path):
+    try:
+        container_path = _to_container_path(body.local_path)
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        )
+
+    if not os.path.isdir(container_path):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"local_path '{body.local_path}' is not a readable directory on this machine",
@@ -88,7 +117,7 @@ async def attach_repo(name: str, body: AttachRepoRequest, request: Request) -> R
         )
 
     try:
-        falkor.attach_repo(name, body.name, body.local_path)
+        falkor.attach_repo(name, body.name, container_path)
     except Exception as err:
         logger.error(
             "Failed to attach repository",
@@ -99,8 +128,17 @@ async def attach_repo(name: str, body: AttachRepoRequest, request: Request) -> R
             detail="Failed to attach repository",
         ) from err
 
-    logger.info("Repository attached", extra={"service": _SERVICE, "graph": name, "repo": body.name})
-    return RepoInfo(name=body.name, local_path=body.local_path)
+    logger.info(
+        "Repository attached",
+        extra={
+            "service": _SERVICE,
+            "graph": name,
+            "repo": body.name,
+            "host_path": body.local_path,
+            "container_path": container_path,
+        },
+    )
+    return RepoInfo(name=body.name, local_path=container_path)
 
 
 @router.get("/graphs/{name}/repositories", response_model=RepoListResponse)
