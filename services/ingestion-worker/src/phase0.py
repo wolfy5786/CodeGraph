@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -48,7 +49,8 @@ class Phase0Pipeline:
 
         writer.create_indexes(gn)
 
-        writer.upsert_root(gn, rn, "/", scan_result.local_path)
+        root_name = Path(scan_result.local_path).name
+        writer.upsert_root(gn, rn, "/", scan_result.local_path, root_name)
         logger.debug(
             "Root node upserted",
             extra={"service": _SERVICE, "graph": gn, "repo": rn, "root_id": scan_result.root_id},
@@ -59,6 +61,7 @@ class Phase0Pipeline:
                 {
                     "id": f.id,
                     "props": {
+                        "name": f.name,
                         "path": f.path,
                         "absolute_path": f.absolute_path,
                         "repo_name": f.repo_name,
@@ -80,6 +83,7 @@ class Phase0Pipeline:
                 {
                     "id": f.id,
                     "props": {
+                        "name": f.name,
                         "path": f.path,
                         "absolute_path": f.absolute_path,
                         "repo_name": f.repo_name,

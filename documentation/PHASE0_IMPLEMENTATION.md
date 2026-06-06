@@ -28,9 +28,11 @@ Phase 0 is the first step of every ingestion run. It produces the structural ske
 |-------|---------|----------------|
 | `Graph` | Workspace (mirrors FalkorDB named graph key) | `name` |
 | `CodeRepository` | Registered repo pointing at disk root | `name`, `local_path`, `graph_name` |
-| `Root` | Canonical repo root folder | `path` (posix, relative), `absolute_path`, `repo_name`, `graph_name` |
-| `Folder` | Directory beneath root | `id`, `path`, `absolute_path`, `repo_name`, `graph_name`, `order` |
-| `File` | On-disk file entry | `id`, `path`, `absolute_path`, `repo_name`, `graph_name`, `extension`, `language_guess`, `extra_labels`, `content_hash`, `order` |
+| `Root` | Canonical repo root folder | `name` (repo root dir basename), `path` (posix, relative), `absolute_path`, `repo_name`, `graph_name` |
+| `Folder` | Directory beneath root | `id`, `name` (folder basename), `path`, `absolute_path`, `repo_name`, `graph_name`, `order` |
+| `File` | On-disk file entry | `id`, `name` (filename with extension), `path`, `absolute_path`, `repo_name`, `graph_name`, `extension`, `language_guess`, `extra_labels`, `content_hash`, `order` |
+
+> `name` is the display caption used in graph visualisations — it is the basename of the node's path (e.g. `"utils"` for a folder, `"main.py"` for a file, `"my-repo"` for the root directory).
 
 > `Graph` and `CodeRepository` nodes are created during workspace / repo registration, not during Phase 0 itself. Phase 0 creates `Root`, `Folder`, and `File` nodes.
 

@@ -730,11 +730,11 @@ function buildRepoCard(graphName, repo) {
       <div class="repo-meta">Last ingested: ${ingested}</div>
       <div class="repo-actions">
         <button class="btn btn-sm btn-primary"
-          onclick="triggerIngest(${q(graphName)}, ${q(repo.name)})">Ingest</button>
+          onclick='triggerIngest(${q(graphName)}, ${q(repo.name)})'>Ingest</button>
         <button class="btn btn-sm"
-          onclick="toggleStatus(${q(graphName)}, ${q(repo.name)})">Status</button>
+          onclick='toggleStatus(${q(graphName)}, ${q(repo.name)})'>Status</button>
         <button class="btn btn-sm btn-danger"
-          onclick="confirmDeleteRepo(${q(graphName)}, ${q(repo.name)})">Delete</button>
+          onclick='confirmDeleteRepo(${q(graphName)}, ${q(repo.name)})'>Delete</button>
       </div>
       <div id="${cardId}-status" class="hidden"></div>
     </div>

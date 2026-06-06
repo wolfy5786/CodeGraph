@@ -132,19 +132,21 @@ class GraphWriter:
         repo_name: str,
         path: str,
         absolute_path: str,
+        name: str = "",
     ) -> str:
         """Merge :Root and CONTAINS from :CodeRepository. Returns node id."""
         node_id = f"{graph_name}:{repo_name}:/"
         q = (
             "MATCH (r:CodeRepository {name: $rn, graph_name: $gn}) "
             "MERGE (root:Root {id: $id}) "
-            "SET root.path = $path, root.absolute_path = $ap, "
+            "SET root.name = $name, root.path = $path, root.absolute_path = $ap, "
             "    root.repo_name = $rn, root.graph_name = $gn "
             "MERGE (r)-[:CONTAINS {order: 1}]->(root)"
         )
         self._run(
             graph_name, q,
-            {"gn": graph_name, "rn": repo_name, "id": node_id, "path": path, "ap": absolute_path},
+            {"gn": graph_name, "rn": repo_name, "id": node_id,
+             "name": name, "path": path, "ap": absolute_path},
         )
         return node_id
 

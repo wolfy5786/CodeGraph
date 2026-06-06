@@ -98,6 +98,7 @@ def classify_file(rel_posix: str) -> tuple[str, list[str]]:
 @dataclass
 class FolderNode:
     id: str
+    name: str           # folder basename — used as display caption in graph
     path: str           # posix-style, relative to repo root
     absolute_path: str
     repo_name: str
@@ -109,6 +110,7 @@ class FolderNode:
 @dataclass
 class FileNode:
     id: str
+    name: str           # filename (with extension) — used as display caption in graph
     path: str           # posix-style, relative to repo root
     absolute_path: str
     repo_name: str
@@ -228,6 +230,7 @@ class Scanner:
                 dir_id_map[child_abs] = node_id
                 folders.append(FolderNode(
                     id=node_id,
+                    name=name,
                     path=rel_posix,
                     absolute_path=str(child_abs),
                     repo_name=repo_name,
@@ -239,6 +242,7 @@ class Scanner:
                 lang, extra_labels = classify_file(rel_posix)
                 files.append(FileNode(
                     id=node_id,
+                    name=name,
                     path=rel_posix,
                     absolute_path=str(child_abs),
                     repo_name=repo_name,
