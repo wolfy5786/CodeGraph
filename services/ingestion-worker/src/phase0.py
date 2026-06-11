@@ -31,7 +31,7 @@ class Phase0Pipeline:
         6. mark_repository_ingested
     """
 
-    def run(self, scan_result: "ScanResult", writer: "GraphWriter") -> None:
+    def run(self, scan_result: "ScanResult", writer: "GraphWriter") -> "ScanResult":
         gn = scan_result.graph_name
         rn = scan_result.repo_name
 
@@ -134,3 +134,4 @@ class Phase0Pipeline:
                 "ingested_at": timestamp,
             },
         )
+        return scan_result
