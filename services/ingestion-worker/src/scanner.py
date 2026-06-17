@@ -132,7 +132,7 @@ class ScanResult:
     graph_name: str
     repo_name: str
     local_path: str     # resolved absolute path of repo root
-    root_id: str        # "{graph_name}:{repo_name}:/"
+    root_id: str        # "{graph_name}:/"
     folders: list[FolderNode] = field(default_factory=list)
     files: list[FileNode] = field(default_factory=list)
 
@@ -167,7 +167,9 @@ class Scanner:
             },
         )
 
-        root_id = f"{graph_name}:{repo_name}:/"
+        # One named graph per repository, so the graph name alone scopes node IDs;
+        # repo_name is still stored on each node as a provenance property.
+        root_id = f"{graph_name}:/"
         folders: list[FolderNode] = []
         files: list[FileNode] = []
         # Populated as we descend so each directory can look up its parent id.
@@ -224,7 +226,7 @@ class Scanner:
         for order, (name, kind) in enumerate(all_children):
             child_abs = dirpath / name
             rel_posix = child_abs.relative_to(root_abs).as_posix()
-            node_id = f"{graph_name}:{repo_name}:{rel_posix}"
+            node_id = f"{graph_name}:{rel_posix}"
 
             if kind == "dir":
                 dir_id_map[child_abs] = node_id

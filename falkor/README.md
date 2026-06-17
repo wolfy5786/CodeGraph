@@ -1,6 +1,6 @@
-# FalkorDB (CodeGraph workspace graphs)
+# FalkorDB (CodeGraph repository graphs)
 
-[FalkorDB](https://www.falkordb.com/) runs as Redis module graph engine. Desktop CodeGraph mounts **exactly one database instance locally** while storing **many logical graphs** (one Falkor named graph per workspace `Graph`).
+[FalkorDB](https://www.falkordb.com/) runs as Redis module graph engine. Desktop CodeGraph mounts **exactly one database instance locally** while storing **many logical graphs** (one Falkor named graph per repository — 1:1 with `Graph`/`CodeRepository`).
 
 ---
 
@@ -39,10 +39,10 @@ Interactive shell:
 redis-cli -h 127.0.0.1 -p 6379
 GRAPH.QUERY <graph_name> "MATCH (n) RETURN count(n) LIMIT 25"
 GRAPH.LIST                              # enumerate graphs managed by Falkor module
-GRAPH.DELETE <graph_name>                 # wipes entire workspace graph — irreversible
+GRAPH.DELETE <graph_name>                 # wipes the entire repository graph — irreversible
 ```
 
-> `<graph_name>` equals the canonical workspace slug created via `POST /api/v1/graphs`.
+> `<graph_name>` equals the canonical per-repository slug created via `POST /api/v1/graphs`.
 
 ---
 
@@ -65,7 +65,7 @@ Adapt statements to Falkor-supported grammar (some variants require `GRAPH.QUERY
 Because constraints are soft, ingestion jobs should:
 
 - Upsert deterministic ids (`GRAPH.MERGE` patterns or delete-then-batch-insert).
-- Maintain **repo-level** bookkeeping when deleting subgraphs (`repo_name`, path prefix nukes).
+- Deleting a repository is a whole-graph operation (`GRAPH.DELETE <repo_graph>`), since each repo owns its named graph.
 
 ---
 

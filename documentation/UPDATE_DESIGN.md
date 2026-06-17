@@ -17,7 +17,7 @@ Instructs the system to auto-detect what has changed in the repository since the
 
 Caller supplies an explicit manifest of file-system changes. The system applies those deltas to the existing graph without a full re-crawl.
 
-- **When used**: caller (typically the LSP watcher) already knows exactly which paths changed.
+- **When used**: caller (typically the file watcher) already knows exactly which paths changed.
 - **Request body**:
 
 ```json
@@ -32,10 +32,10 @@ Caller supplies an explicit manifest of file-system changes. The system applies 
 
 ### 1.3 `recreate`
 
-Tears down the entire existing repo subgraph and runs a full Phase 1 + Phase 2 ingestion from scratch. Semantically equivalent to `DELETE repo` → `POST ingest`.
+Tears down the repository's named graph and runs a full Phase 0 + Phase 1 + Phase 2 ingestion from scratch. Semantically equivalent to `DELETE repo` → `POST ingest`.
 
 - **When used**: structural change too large for incremental update, or graph corruption suspected.
-- **Post-dequeue behavior**: delete all nodes/edges scoped to `repo_name`, then invoke the standard two-phase ingestion pipeline.
+- **Post-dequeue behavior**: clear the repository's named graph, then invoke the standard three-phase ingestion pipeline.
 
 ---
 
@@ -46,9 +46,9 @@ Tears down the entire existing repo subgraph and runs a full Phase 1 + Phase 2 i
 | **CLI** | ✓ | ✓ | ✓ |
 | **REST** | ✓ | — | ✓ |
 | **MCP** | ✓ | — | ✓ |
-| **LSP watcher** (internal) | — | ✓ | — |
+| **File watcher** (internal) | — | ✓ | — |
 
-The LSP watcher is an internal component and never issues `check_update` or `recreate`; it always knows which files changed. MCP and REST cannot supply file manifests — they can only trigger auto-detection or full recreation.
+The file watcher is an internal component and never issues `check_update` or `recreate`; it always knows which files changed. MCP and REST cannot supply file manifests — they can only trigger auto-detection or full recreation.
 
 ---
 
@@ -251,8 +251,8 @@ Callers should treat `"outcome": "failed"` as a signal to re-query status for er
 `recreate` is the only operation whose post-dequeue processing is fully defined.
 
 1. Acquire the read lock and save the snapshot (§ 5.1–5.2).
-2. Delete all nodes and relationships in FalkorDB that carry `repo_name = <repo>`.
-3. Invoke the standard three-phase ingestion pipeline (Phase 0 filesystem scan + structural graph write → Phase 1 SCIP extraction → Phase 2 LSP enrichment) exactly as `POST .../ingest` does.
+2. Clear the repository's named graph (it holds only this repo, so a graph wipe is sufficient).
+3. Invoke the standard three-phase ingestion pipeline (Phase 0 filesystem scan + structural graph write → Phase 1 SCIP extraction → Phase 2 SCIP labels + regex + SCIP relationships) exactly as `POST .../ingest` does.
 4. On completion, release the lock and delete the snapshot (§ 5.4).
 
 State machine extension for the existing `status` endpoint:

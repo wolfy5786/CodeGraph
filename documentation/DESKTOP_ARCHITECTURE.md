@@ -5,7 +5,7 @@
 CodeGraph runs as a **trusted-local daemon**:
 
 1. **`codegraph serve`** — FastAPI + optional static dashboard + background ingestion worker loops.
-2. **FalkorDB** container — persists all graph workspaces as **named graphs**.
+2. **FalkorDB** container — persists each repository as its own **named graph** (1:1 with `Graph`/`CodeRepository`).
 3. **`codegraph` CLI / MCP shim / VS Code extension** — thin HTTP/WebSocket consumers.
 
 FalkorDB uses Redis protocol; callers do not manage a separate user directory or Postgres layer for graphs.
@@ -34,7 +34,7 @@ flowchart LR
     Daemon --> IW --> F
 ```
 
-**LSP watcher** (`services/ingestion-worker/src/watcher/`) monitors the file system and emits `update` (delta manifest) requests to the async update queue. It cannot issue `check_update` or `recreate` — those are reserved for CLI, MCP, and REST callers. See [UPDATE_DESIGN.md](UPDATE_DESIGN.md) for the full surface permission table.
+**File watcher** (`services/ingestion-worker/src/watcher/`) monitors the file system and emits `update` (delta manifest) requests to the async update queue. It cannot issue `check_update` or `recreate` — those are reserved for CLI, MCP, and REST callers. See [UPDATE_DESIGN.md](UPDATE_DESIGN.md) for the full surface permission table.
 
 ---
 

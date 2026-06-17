@@ -44,7 +44,7 @@ async def create_graph(body: CreateGraphRequest, request: Request) -> GraphStats
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create graph",
         ) from err
-    logger.info("Graph workspace created", extra={"service": _SERVICE, "graph": name})
+    logger.info("Graph created", extra={"service": _SERVICE, "graph": name})
     return GraphStats(name=name, repo_count=0, node_count=1, edge_count=0)
 
 
@@ -103,4 +103,4 @@ async def delete_graph(name: str, request: Request) -> None:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete graph",
         ) from err
-    logger.info("Graph workspace deleted", extra={"service": _SERVICE, "graph": name})
+    logger.info("Graph deleted", extra={"service": _SERVICE, "graph": name})

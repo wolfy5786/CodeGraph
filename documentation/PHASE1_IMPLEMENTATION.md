@@ -2,7 +2,7 @@
 
 > **Status:** Desktop redesign (documentation)
 > **Scope:** Run SCIP indexers over `SourceFile` entries produced by Phase 0, parse the emitted `index.scip` protobuf into code-symbol nodes and `CONTAINS` edges, and batch-write everything to FalkorDB.
-> **Storage:** FalkorDB (one instance, **named graph per workspace** `Graph`)
+> **Storage:** FalkorDB (one instance, **named graph per repository** `Graph` — 1:1 with `CodeRepository`)
 
 ---
 
@@ -46,7 +46,7 @@ If SCIP emits multiple disjoint top-level siblings in a single file, `:File CONT
 ### Node ID scheme
 
 ```
-id = "{graph_name}:{repo_name}:{relative_path}:{start_line}:{symbol_simple_name}"
+id = "{graph_name}:{relative_path}:{start_line}:{symbol_simple_name}"
 ```
 
 IDs are deterministic and stable across re-ingestions for the same source position.
@@ -61,7 +61,7 @@ IDs are deterministic and stable across re-ingestions for the same source positi
 | `path` | Relative to repo root | Mirrors parent `:File` path |
 | `start_line`, `end_line` | SCIP ranges | UTF-16 offsets converted to UTF-8 lines offline |
 | `scip_descriptor` | Full SCIP id | Debugging + dedupe |
-| `scip_kind` | SCIP `SymbolKind` integer | Consumed directly by Phase 2 Tier 1 |
+| `scip_kind` | SCIP `SymbolKind` integer | Consumed directly by Phase 2 SCIP labels |
 | `signature` / `detail` | SCIP hover text (best-effort) | Empty until Phase 2 enrichment |
 
 ---
@@ -113,14 +113,14 @@ Merge:
 
 Consult [falkor/README.md](../falkor/README.md) for Redis CLI examples and index creation commands.
 
-Isolation: queries always specify the FalkorDB named graph — never traverse across workspaces.
+Isolation: queries always specify the FalkorDB named graph — one per repository, so traversals never cross repositories.
 
 ---
 
 ## References
 
 - Phase 0 (structural skeleton): [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md)
-- Phase 2 (tier DAG): [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md)
+- Phase 2 (SCIP + regex): [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md)
 - Structural details: `core_system/documentation/Nodes.txt`
 - Relationships: `core_system/documentation/Relationships.txt`
 - Desktop layering: [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md)

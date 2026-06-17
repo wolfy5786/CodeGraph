@@ -20,8 +20,8 @@ Concurrency safety
   entire Phase 0 run.  A concurrent update or second ingest for the same
   (graph, repo) pair will see the lock held and be rejected with 409 before
   it can start.
-- Different repos (including different repos on the same graph) run in
-  independent slots and can execute Phase 0 concurrently.
+- Different repos (each in its own named graph) run in independent slots and
+  can execute Phase 0 concurrently.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # Node Labels — desktop / Falkor model
 
-Constraints remain **application-level**. Graph isolation = Falkor **named workspace graph** (`Graph.name`). Repo disambiguation = `repo_name` property + structural `:CodeRepository` anchor.
+Constraints remain **application-level**. Graph isolation = Falkor **named graph per repository** (`Graph.name`, 1:1 with the repo). Each named graph holds exactly one `:CodeRepository`; the `repo_name` property is retained on nodes for provenance but no cross-repo filtering is required.
 
 ---
 
@@ -8,8 +8,8 @@ Constraints remain **application-level**. Graph isolation = Falkor **named works
 
 | Label | Meaning | Typical properties |
 |-------|---------|--------------------|
-| `Graph` | Logical workspace synced with Falkor graph key | `name` |
-| `CodeRepository` | Registered absolute repo root wrapper | `name`, `graph_name`, `local_path`, `last_ingested_at` |
+| `Graph` | Per-repository graph synced with Falkor graph key (1:1 with the repo) | `name` |
+| `CodeRepository` | Registered absolute repo root wrapper (exactly one per graph) | `name`, `graph_name`, `local_path`, `last_ingested_at` |
 | `Root` | Canonical folder node for repo filesystem root | `path`, `repo_name`, `graph_name`, `absolute_path` |
 | `Folder` | Directory subtree | same as Root sans `absolute_path` optional |
 | `File` | Real file-system file before SCIP attaches symbols | `path`, `extension`, `language_guess`, `repo_name`, `graph_name` |
@@ -37,17 +37,16 @@ Code symbols extracted via SCIP share base label **`CodeVertex`** alongside sema
 
 ---
 
-## Phase 2 — Tiered semantic labels
+## Phase 2 — Semantic labels (SCIP + regex, no tiers, no LSP)
 
-All semantic adornment tiers align with `PHASE2_IMPLEMENTATION.md` (repo root) and consume **`scip_kind`** from SCIP protobuf.
+All semantic adornment aligns with `PHASE2_IMPLEMENTATION.md` and is produced by exactly one of two mechanisms — there are no tiers and no LSP:
 
-Tier summary:
+| Mechanism | Inputs | Labels produced |
+|-----------|--------|-----------------|
+| SCIP | `scip_kind` + SCIP descriptor + SCIP relationship/occurrence stream | Definition labels (Module/Class/Interface/Method/Function/Attribute/Constructor/Enum/Event), `Object`/`Instance`, `InnerClass`, `External`, `Internal` |
+| Regex | per-language source patterns | `Abstract`, `Lambda`, `Destructor`, `Testing`, network/DB/IPC/thread intent labels, `JavaClass`/`JavaInterface`/`JavaEnum` |
 
-| Tier | Inputs |
-|------|--------|
-| 1 | SCIP symbol kinds + relationships + regex overlays |
-| 3 | Hover / defs / hierarchies needing live LSP |
-| 2 | DAG graph passes (InnerClass / OVERRIDES / External / SPAWNS / …) |
+`INSTANTIATES` is removed from the design. `SPAWNS` is deferred to a later milestone.
 
 ---
 
@@ -59,9 +58,9 @@ Tier summary:
 | `CodeRepository` | 0 | Phase 1 |
 | `Root` / `Folder` | 1 | Phase 1 |
 | `File` | structural | Phase 1 |
-| `Module` / `Class` / `Enum` / `Interface` / callables … | varies | Tier 1 / SCIP groundwork |
+| `Module` / `Class` / `Enum` / `Interface` / callables … | varies | Phase 2 SCIP labels |
 
-Nodes do **not** include remote blob keys or multi-tenant scope columns; scope is the Falkor graph name plus `repo_name` when needed.
+Nodes do **not** include remote blob keys or multi-tenant scope columns; scope is the Falkor graph name (one graph per repository).
 
 ---
 
@@ -71,9 +70,9 @@ Nodes do **not** include remote blob keys or multi-tenant scope columns; scope i
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `id` | string | Stable ID: `{graph_name}:{repo_name}:{relative_path}:{start_line}:{name}` |
-| `graph_name` | string | Workspace graph slug |
-| `repo_name` | string | Registered CodeRepository nickname |
+| `id` | string | Stable ID: `{graph_name}:{relative_path}:{start_line}:{name}` |
+| `graph_name` | string | Per-repository graph slug |
+| `repo_name` | string | Registered CodeRepository nickname (provenance only; not part of the ID) |
 | `name` | string | Symbol / filename |
 | `path` | string | Repo-relative path |
 | `language` | string | Language tag |
@@ -82,13 +81,13 @@ Nodes do **not** include remote blob keys or multi-tenant scope columns; scope i
 | `scip_kind` | int | `SymbolKind` ordinal |
 | `signature`,`detail` | string | SCIP / heuristic metadata |
 
-### Phase 2 Tier 1
+### Phase 2 SCIP labels
 
-Includes `level`, `return_type`, `parameter_types`, `access_modifier`, `modifiers`, `annotations`, `is_static` (regex derived).
+Includes `level` (from primary label) and `reference_type_detail` (SCIP type relationship, `Object` nodes only).
 
-### Tier 3
+### Phase 2 regex properties
 
-Includes `reference_type_detail`, `definition_uri`.
+Includes `return_type`, `parameter_types`, `access_modifier`, `modifiers`, `annotations`, `is_static` (regex derived).
 
 ### Deferred (TBD)
 

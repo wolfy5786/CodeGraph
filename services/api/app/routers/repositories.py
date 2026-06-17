@@ -110,10 +110,21 @@ async def attach_repo(name: str, body: AttachRepoRequest, request: Request) -> R
             detail=f"local_path '{body.local_path}' is not a readable directory on this machine",
         )
 
-    if falkor.repo_exists(name, body.name):
+    # One repository per graph: reject a second repo (or a re-attach under a
+    # different name) so the graph stays 1:1 with its repository.
+    existing = falkor.list_repos(name)
+    if existing:
+        if any(r["name"] == body.name for r in existing):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Repository '{body.name}' is already attached to graph '{name}'",
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Repository '{body.name}' is already attached to graph '{name}'",
+            detail=(
+                f"Graph '{name}' already has repository '{existing[0]['name']}' "
+                "attached; each graph holds exactly one repository"
+            ),
         )
 
     try:

@@ -7,7 +7,7 @@ Structural chain:
 
 `(:File)-[:CONTAINS]->(top-level module/class/enum …)` continuing per SCIP tree.
 
-Scopes use **`graph_name`** (implicit via Falkor graph key) plus optional **`repo_name`** filter whenever multiple repos share one workspace graph.
+Scope is the **`graph_name`** (implicit via the Falkor graph key). Each repository is its own named graph (1:1), so no `repo_name` filter is needed when traversing.
 
 ---
 
@@ -25,47 +25,38 @@ Whole-file overlays stop at `:File`.
 
 ---
 
-## Phase 2 Tier 1 — inheritance
+## Phase 2 relationships — all SCIP-derived (no tiers, no LSP)
 
-| Relationship | Primary | Fallback regex |
-|--------------|---------|------------------|
-| `INHERITS` | SCIP relationship edges | language-specific declarations |
-| `IMPLEMENTS` | SCIP | `implements` regex / analogous |
+Every Phase 2 edge is built from the SCIP index (relationship records + occurrence stream) parsed in Phase 1, then resolved to nodes inside the repository's single named graph. Regex is only an inheritance fallback.
+
+| Relationship | Mechanism | Fallback |
+|--------------|-----------|----------|
+| `INHERITS` | SCIP relationship records | language-specific `extends`-style regex |
+| `IMPLEMENTS` | SCIP relationship records | `implements` regex / analogous |
+| `CALLS` | reference `Occurrence` to a callable inside a callable's range | — |
+| `SETS` / `GETS` | `Occurrence` `SymbolRole.WriteAccess` / `ReadAccess` on attributes → enclosing callable | — |
+| `OVERRIDES` | SCIP `is_implementation` relationship | graph rule: inherited parent method of same name |
+| `BELONGS_TO` | `Object` `reference_type_detail` (SCIP type) → Class | — |
 
 Resolution example:
 
 ```text
-MATCH (n {repo_name:$repo,name:$simple})
+MATCH (n {name:$simple})
 WHERE labels include Class/Interface
 ```
 
----
+Line-range matching for `CALLS`/`SETS`/`GETS` keys on **path + start_line/end_line** within the repo graph.
 
-## Tier 3 — LSP
-
-| Relationship | Mechanism |
-|--------------|-----------|
-| `CALLS` | outgoing call hierarchy |
-| `SETS` / `GETS` | document highlight writes/reads |
-
-Line-range matching identical to PHASE2_IMPLEMENTATION semantics but keyed by **`repo_name` + path**.
+`InnerClass` is a SCIP label (nested class descriptor), documented in `Nodes.txt`.
 
 ---
 
-## Tier 2 DAG
+## Removed / deferred edges
 
-| Stage | Relationships / labels |
-|-------|-------------------------|
-| 2a | `InnerClass`, `INSTANTIATES` |
-| 2b | `OVERRIDES`, `BELONGS_TO` |
-| 2c | `External`, `SPAWNS` |
-
-Sample `InnerClass`:
-
-```text
-MATCH (parent:Class)-[:CONTAINS]->(child:Class)
-WHERE child.repo_name = $repo
-```
+| Edge | Status |
+|------|--------|
+| `INSTANTIATES` | **Removed** — constructors are captured by the `Constructor` label only |
+| `SPAWNS` | **Deferred** — regex over `ForksThreadsProcess` bodies, later milestone |
 
 ---
 

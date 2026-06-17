@@ -11,8 +11,8 @@
 | **Base URL** | `http://127.0.0.1:8765/api/v1` |
 | **Auth** | None (local single-user assumption) |
 | **Middleware** | Optional request timing / gzip only |
-| **Graph scope** | All writes target a FalkorDB **named graph** matching the `{name}` path segment |
-| **Repository scope** | Ingest/query helpers may additionally filter `{repo}` when multiple repos exist under one graph |
+| **Graph scope** | All writes target a FalkorDB **named graph** matching the `{name}` path segment (one graph per repository) |
+| **Repository scope** | Each named graph holds exactly one `{repo}` (1:1 with the graph); no cross-repo filtering needed |
 | **Natural-language query** | Reserved route — **design TBD** (see README *Query flow (TBD)*) |
 
 ---
@@ -21,7 +21,7 @@
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/graphs` | Create named workspace graph (`body: {"name":"<graph_key>"}`) |
+| `POST` | `/api/v1/graphs` | Create named repository graph (`body: {"name":"<graph_key>"}`) |
 | `GET` | `/api/v1/graphs` | Enumerate graphs known to daemon |
 | `GET` | `/api/v1/graphs/{name}` | Metadata & coarse stats (#repos, disk paths, Falkor cardinality summary) |
 | `DELETE` | `/api/v1/graphs/{name}` | Drops FalkorDB graph + clears local bookkeeping |
@@ -110,6 +110,6 @@ Temporary clients should **avoid** coupling until changelog announces completion
 
 ## Isolation guarantees (local desktop)
 
-- **Workspace isolation**: distinct Falkor **named graphs** — never traverse across `{name}`.
-- **Repository filtering**: ingestion jobs stamp `repo_name` on subgraph elements; callers may restrict operations to `{repo}`.
+- **Graph isolation**: one Falkor **named graph per repository** — never traverse across `{name}`.
+- **Repository scope**: each graph holds exactly one repo (1:1); `repo_name` is retained on nodes for provenance only.
 - **Trusted local deployment**: bind the API to loopback unless you deliberately add your own authentication or tunneling layer.

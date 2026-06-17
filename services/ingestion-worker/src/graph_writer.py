@@ -67,7 +67,6 @@ class GraphWriter:
         ddls = [
             "CREATE INDEX FOR (n:File) ON (n.path)",
             "CREATE INDEX FOR (n:CodeRepository) ON (n.name)",
-            "CREATE INDEX FOR (n:CodeRepository) ON (n.graph_name)",
             "CREATE INDEX FOR (n:Folder) ON (n.path)",
             "CREATE INDEX FOR (n:Class) ON (n.name)",
             "CREATE INDEX FOR (n:Method) ON (n.name)",
@@ -135,7 +134,7 @@ class GraphWriter:
         name: str = "",
     ) -> str:
         """Merge :Root and CONTAINS from :CodeRepository. Returns node id."""
-        node_id = f"{graph_name}:{repo_name}:/"
+        node_id = f"{graph_name}:/"
         q = (
             "MATCH (r:CodeRepository {name: $rn, graph_name: $gn}) "
             "MERGE (root:Root {id: $id}) "
@@ -159,7 +158,7 @@ class GraphWriter:
         order: int = 0,
     ) -> str:
         """Merge :Folder and CONTAINS from parent (Root or Folder). Returns node id."""
-        node_id = f"{graph_name}:{repo_name}:{path}"
+        node_id = f"{graph_name}:{path}"
         q = (
             "MATCH (p {id: $parent_id}) "
             "MERGE (f:Folder {id: $id}) "
@@ -185,7 +184,7 @@ class GraphWriter:
         order: int = 0,
     ) -> str:
         """Merge :File with overlay labels and CONTAINS from parent. Returns node id."""
-        node_id = f"{graph_name}:{repo_name}:{path}"
+        node_id = f"{graph_name}:{path}"
         q = (
             "MATCH (p {id: $parent_id}) "
             "MERGE (f:File {id: $id}) "
@@ -280,38 +279,39 @@ class GraphWriter:
             extra={"service": "graph_writer", "graph": graph_name, "count": len(edges)},
         )
 
-    def delete_file_subtree(
-        self, graph_name: str, repo_name: str, path: str
-    ) -> None:
-        """Delete a File and all SCIP symbol descendants for incremental re-ingestion."""
-        params = {"rn": repo_name, "path": path}
+    def delete_file_subtree(self, graph_name: str, path: str) -> None:
+        """Delete a File and all SCIP symbol descendants for incremental re-ingestion.
+
+        The graph holds a single repository, so the File is identified by path alone.
+        """
+        params = {"path": path}
         # Descendants first so DETACH DELETE on the file node finds no dangling edges.
         self._run(
             graph_name,
-            "MATCH (:File {repo_name: $rn, path: $path})-[:CONTAINS*]->(desc) DETACH DELETE desc",
+            "MATCH (:File {path: $path})-[:CONTAINS*]->(desc) DETACH DELETE desc",
             params,
         )
         self._run(
             graph_name,
-            "MATCH (f:File {repo_name: $rn, path: $path}) DETACH DELETE f",
+            "MATCH (f:File {path: $path}) DETACH DELETE f",
             params,
         )
         logger.info(
             "Deleted file subtree",
-            extra={"service": "graph_writer", "graph": graph_name, "repo": repo_name, "path": path},
+            extra={"service": "graph_writer", "graph": graph_name, "path": path},
         )
 
-    def delete_repository(self, graph_name: str, repo_name: str) -> None:
-        """Detach-delete all nodes scoped to repo_name including the CodeRepository anchor."""
-        self._run(graph_name, "MATCH (n {repo_name: $rn}) DETACH DELETE n", {"rn": repo_name})
-        self._run(
-            graph_name,
-            "MATCH (r:CodeRepository {name: $rn, graph_name: $gn}) DETACH DELETE r",
-            {"rn": repo_name, "gn": graph_name},
-        )
+    def clear_repository(self, graph_name: str) -> None:
+        """Wipe every node except the :Graph anchor (used by recreate).
+
+        Each repository owns its named graph, so clearing the repo means clearing
+        the graph contents; the :Graph node is kept so the graph still exists and
+        the repository can be re-ingested.
+        """
+        self._run(graph_name, "MATCH (n) WHERE NOT n:Graph DETACH DELETE n")
         logger.info(
-            "Deleted repository",
-            extra={"service": "graph_writer", "graph": graph_name, "repo": repo_name},
+            "Cleared repository graph",
+            extra={"service": "graph_writer", "graph": graph_name},
         )
 
     # ------------------------------------------------------------------
@@ -319,11 +319,11 @@ class GraphWriter:
     # ------------------------------------------------------------------
 
     def get_nodes_by_label(
-        self, graph_name: str, repo_name: str, label: str
+        self, graph_name: str, label: str
     ) -> list[dict[str, Any]]:
-        """All nodes with label scoped to repo_name."""
-        q = f"MATCH (n:{label} {{repo_name: $rn}}) RETURN n"
-        result = self._run(graph_name, q, {"rn": repo_name})
+        """All nodes with the given label in this repository's graph."""
+        q = f"MATCH (n:{label}) RETURN n"
+        result = self._run(graph_name, q)
         return [_node_to_dict(row[0]) for row in result.result_set]
 
     def get_node_by_id(
@@ -357,22 +357,21 @@ class GraphWriter:
     def get_nodes_by_name_and_label(
         self,
         graph_name: str,
-        repo_name: str,
         name: str,
         label: str,
     ) -> list[dict[str, Any]]:
         """Resolve a simple type name to nodes — used for BELONGS_TO and INHERITS resolution."""
-        q = f"MATCH (n:{label} {{repo_name: $rn, name: $name}}) RETURN n"
-        result = self._run(graph_name, q, {"rn": repo_name, "name": name})
+        q = f"MATCH (n:{label} {{name: $name}}) RETURN n"
+        result = self._run(graph_name, q, {"name": name})
         return [_node_to_dict(row[0]) for row in result.result_set]
 
     def get_inherits_parents(
         self, graph_name: str, class_id: str
     ) -> list[dict[str, Any]]:
-        """Return nodes that class_id directly INHERITS from."""
+        """Return nodes that class_id directly INHERITS from or IMPLEMENTS."""
         result = self._run(
             graph_name,
-            "MATCH (c {id: $cid})-[:INHERITS]->(p) RETURN p",
+            "MATCH (c {id: $cid})-[:INHERITS|IMPLEMENTS]->(p) RETURN p",
             {"cid": class_id},
         )
         return [_node_to_dict(row[0]) for row in result.result_set]
@@ -388,38 +387,29 @@ class GraphWriter:
         )
         return [_node_to_dict(row[0]) for row in result.result_set]
 
-    def get_class_hierarchy(
-        self, graph_name: str, repo_name: str
-    ) -> list[tuple[str, str, str]]:
-        """Return (child_id, parent_id, parent_name) for all INHERITS chains in repo."""
-        q = (
-            "MATCH (c:Class {repo_name: $rn})-[:INHERITS*]->(p) "
-            "RETURN c.id, p.id, p.name"
-        )
-        result = self._run(graph_name, q, {"rn": repo_name})
-        return [(row[0], row[1], row[2]) for row in result.result_set]
-
-    def get_nodes_by_scip_kind_and_parent_kind(
+    def enclosing_callable(
         self,
         graph_name: str,
-        repo_name: str,
-        child_scip_kind: int,
-        parent_scip_kind: int,
-    ) -> list[dict[str, Any]]:
-        """Child nodes filtered by SCIP kind with parent id attached as _parent_id."""
+        path: str,
+        line: int,
+        callable_kinds: list[int],
+    ) -> dict[str, Any] | None:
+        """Tightest-span callable node containing `line` in `path`.
+
+        Used by Phase 2 to attach CALLS / SETS / GETS edges to the callable that
+        encloses a SCIP occurrence. Callable kinds are SCIP SymbolKind ints.
+        """
         q = (
-            "MATCH (p {scip_kind: $pk})-[:CONTAINS]->(n {repo_name: $rn, scip_kind: $k}) "
-            "RETURN n, p.id AS parent_id"
+            "MATCH (n {path: $path}) "
+            "WHERE n.scip_kind IN $kinds "
+            "  AND n.start_line <= $line AND n.end_line >= $line "
+            "RETURN n ORDER BY (n.end_line - n.start_line) ASC LIMIT 1"
         )
         result = self._run(
-            graph_name, q, {"rn": repo_name, "k": child_scip_kind, "pk": parent_scip_kind}
+            graph_name, q, {"path": path, "line": line, "kinds": callable_kinds}
         )
-        out = []
-        for row in result.result_set:
-            d = _node_to_dict(row[0])
-            d["_parent_id"] = row[1]
-            out.append(d)
-        return out
+        rows = result.result_set
+        return _node_to_dict(rows[0][0]) if rows else None
 
     # ------------------------------------------------------------------
     # Phase 2 — write methods (also exposed for WAL rollback)

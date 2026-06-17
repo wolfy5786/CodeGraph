@@ -1,14 +1,14 @@
 # CodeGraph
 
-> **Desktop codegraph builder.** Ingest multiple local repositories into independent graph workspaces, persist everything in **[FalkorDB](https://www.falkordb.com)** (Docker), and expose the same capability through a **CLI**, **local HTTP API**, **MCP**, **VS Code extension**, and **other editors via MCP**.
+> **Desktop codegraph builder.** Ingest local repositories — **one FalkorDB named graph per repository** — persist everything in **[FalkorDB](https://www.falkordb.com)** (Docker), and expose the same capability through a **CLI**, **local HTTP API**, **MCP**, **VS Code extension**, and **other editors via MCP**.
 
-CodeGraph constructs a hierarchical knowledge graph: each **workspace Graph** connects to **CodeRepository** nodes; each repo has a filesystem **Root**, **Folder** / **File** nodes, and each ingested source **File** links to **top-level code symbols** (e.g. `:Module` for Python, `:Class` / `:Enum` for Java). Phase 2 enriches the graph with semantic labels and edges using a tiered DAG: **SCIP** for Tier 1 structure and **LSP** for complex live edges.
+CodeGraph constructs a hierarchical knowledge graph: each repository is its own named graph, where a **Graph** node connects 1:1 to a **CodeRepository** node; the repo has a filesystem **Root**, **Folder** / **File** nodes, and each ingested source **File** links to **top-level code symbols** (e.g. `:Module` for Python, `:Class` / `:Enum` for Java). Phase 2 enriches the graph with semantic labels and edges using **SCIP** (definition labels + relationships) and **regex** (modifier/intent labels). There is no LSP and no tier system.
 
 The app assumes a **trusted single-user machine** bound to localhost; there is no multi-user authentication layer.
 
 **Embedding / semantic retrieval:** **TBD** — provider and storage strategy will be chosen after locking requirements (see [Query flow (TBD)](#query-flow-tbd)).
 
-**Language indexing:** Design targets SCIP indexers (`scip-java`, `scip-python`, `scip-typescript`, `scip-clang`, …) plus LSP tier-3 adapters per language.
+**Language indexing:** Design targets SCIP indexers (`scip-java`, `scip-python`, `scip-typescript`, `scip-clang`, …) per language. Phase 2 derives all relationships from the SCIP index; no LSP servers are used in ingestion.
 
 ---
 
@@ -17,10 +17,10 @@ The app assumes a **trusted single-user machine** bound to localhost; there is n
 - [Features](#features)
 - [System architecture](#system-architecture)
 - [Structural graph schema](#structural-graph-schema)
-- [Two-phase ingestion (DAG)](#two-phase-ingestion-dag)
+- [Three-phase ingestion](#three-phase-ingestion)
 - [Tech stack](#tech-stack)
 - [Surfaces](#surfaces)
-- [Graph workspaces & repos](#graph-workspaces--repos)
+- [Graphs & repos](#graphs--repos)
 - [Getting started](#getting-started-local-desktop)
 - [Environment variables](#environment-variables)
 - [Documentation map](#documentation-map)
@@ -32,10 +32,10 @@ The app assumes a **trusted single-user machine** bound to localhost; there is n
 
 ## Features
 
-- **Local-first** — one FalkorDB container; workspace isolation via **named graphs** inside that instance.
-- **Multiple graphs** — create several independent workspaces; each can attach **many** local repository roots (`CodeRepository`).
+- **Local-first** — one FalkorDB container; isolation via **one named graph per repository** inside that instance.
+- **One graph per repo** — each repository is its own independent named graph (a `Graph` node 1:1 with a `CodeRepository`).
 - **Absolute paths only for ingestion** — you register the exact directory on disk (`CodeRepository.local_path`).
-- **Three-phase indexing** — Phase 0: filesystem scan, file classification, content hashing, structural graph write; Phase 1: SCIP-derived code-symbol nodes and `CONTAINS`; Phase 2: tiers (SCIP+kinds+regex → LSP-heavy edges → graph-dependent DAG steps); see [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md), [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md), [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md).
+- **Three-phase indexing** — Phase 0: filesystem scan, file classification, content hashing, structural graph write; Phase 1: SCIP-derived code-symbol nodes and `CONTAINS`; Phase 2: SCIP (definition labels + relationships) and regex (modifier/intent labels), no tiers and no LSP; see [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md), [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md), [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md).
 - **Editors** — VS Code extension for dashboard-style actions + jump-to-source; any MCP-capable editor (Cursor, Claude Desktop, JetBrains, Zed, Neovim MCP clients, …) talks to the **same local API** via the MCP shim.
 - **Local web dashboard** — optional UI served alongside the API (ingestion progress, graphs, repos, future query UI).
 
@@ -55,14 +55,13 @@ flowchart TB
 
     subgraph core ["codegraph serve"]
         api[FastAPI local API]
-        watcher[File watcher / LSP didChangeWatchedFiles TBD]
+        watcher[File watcher / didChangeWatchedFiles TBD]
         scip[SCIP indexer per language]
-        lsp[LSP clients Tier 3]
-        ingestor[Two-phase ingestion DAG]
+        ingestor[Three-phase ingestion]
     end
 
     subgraph data [Docker]
-        falkor[(FalkorDB - multiple named graphs)]
+        falkor[(FalkorDB - one named graph per repo)]
     end
 
     cli --> api
@@ -74,16 +73,15 @@ flowchart TB
     ingestor --> falkor
     watcher -.-> ingestor
     ingestor --> scip
-    ingestor --> lsp
 ```
 
 ### Indexing overview
 
-1. **Register** a graph workspace and attach one or more `CodeRepository` records with **`local_path`**.
+1. **Register** a repository — this creates its own named graph (a `Graph` node 1:1 with the `CodeRepository`) with **`local_path`**.
 2. **Phase 0** walks the filesystem, classifies every file by extension, hashes file content (SHA-256), and writes the complete structural skeleton — `:Root → (:Folder|:File)` — to FalkorDB in a single batch. `content_hash` on each `:File` node is used by the update pipeline to detect modifications.
 3. **Phase 1** takes the `SourceFile` entries from Phase 0 and runs **SCIP** to populate code-symbol nodes under each `:File` with `CONTAINS` chains down to nested symbols.
-4. **Phase 2** runs the tier DAG: Tier 1 (SCIP `SymbolKind` + relationships + regex), Tier 3 (LSP call/hover/definition/highlight), Tier 2 (sequential InnerClass / OVERRIDES / External / SPAWNS, …).
-5. Queries (when designed) execute **only within the selected FalkorDB named graph**.
+4. **Phase 2** adds semantics from two sources, no tiers and no LSP: **SCIP** (definition labels, `Object`, `InnerClass`, `External`; relationships `INHERITS`/`IMPLEMENTS`/`CALLS`/`SETS`/`GETS`/`OVERRIDES`/`BELONGS_TO`) and **regex** (modifier/intent labels + scalar properties). `INSTANTIATES` is removed; `SPAWNS` is deferred.
+5. Queries (when designed) execute **only within that repository's FalkorDB named graph**.
 
 ---
 
@@ -95,8 +93,7 @@ A single **`CONTAINS`** relationship type spans containment at every structural 
 
 ```mermaid
 flowchart LR
-    G["Graph"] -->|"CONTAINS"| R1["CodeRepository"]
-    G -->|"CONTAINS"| R2["CodeRepository"]
+    G["Graph (per repo)"] -->|"CONTAINS"| R1["CodeRepository"]
     R1 -->|"CONTAINS"| Root["Root"]
     Root -->|"CONTAINS"| Fold["Folder"]
     Root -->|"CONTAINS"| File1["File"]
@@ -107,16 +104,16 @@ flowchart LR
     TopPy -->|"CONTAINS"| Func["Function"]
 ```
 
-- Queries and writes are scoped by **FalkorDB named graph** (one per workspace `Graph`).
-- Workspace history and versioning beyond the graph itself are **out of scope** for this design.
+- Queries and writes are scoped by **FalkorDB named graph** (one per repository, 1:1 with `Graph`/`CodeRepository`).
+- Repo history and versioning beyond the graph itself are **out of scope** for this design.
 
 ---
 
-## Three-phase ingestion (DAG)
+## Three-phase ingestion
 
 - **Phase 0** — Structural skeleton: walk the filesystem, classify every file by extension, compute a SHA-256 `content_hash` for each file, write all `Root / Folder / File` nodes and `CONTAINS` edges to FalkorDB in a single batch. See [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md).
 - **Phase 1** — SCIP extraction: for each `SourceFile` node produced by Phase 0, run the language-specific SCIP indexer, parse `index.scip`, emit code-symbol nodes + `CONTAINS` edges, batch-write to FalkorDB. See [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md).
-- **Phase 2** — Same Tier 1 → Tier 3 → Tier 2 DAG as documented in [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md), with Tier 1 driven primarily by SCIP payloads and Tier 3 by LSP.
+- **Phase 2** — Two mechanisms, no tiers and no LSP: **SCIP** for definition labels + `Object`/`InnerClass`/`External` + relationships (`INHERITS`/`IMPLEMENTS`/`CALLS`/`SETS`/`GETS`/`OVERRIDES`/`BELONGS_TO`), and **regex** for modifier/intent labels + scalar properties. `INSTANTIATES` removed; `SPAWNS` deferred. See [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md).
 
 ---
 
@@ -126,9 +123,9 @@ flowchart LR
 |------|-------------|
 | Local API | Python 3.12+, FastAPI, Uvicorn |
 | CLI | Typer / Click (`codegraph`) |
-| Graph DB | FalkorDB in Docker (**one instance**, multiple **named graphs**) |
+| Graph DB | FalkorDB in Docker (**one instance**, **one named graph per repository**) |
 | Indexing Phase 1 (symbols) | SCIP toolchain per language (`scip-java`, …) |
-| Indexing Phase 2 Tier 3 | LSP servers (jdtls, pyright/clangd/tsserver, …) |
+| Indexing Phase 2 (labels + edges) | SCIP index (relationships + occurrences) + per-language regex; no LSP |
 | MCP | Python MCP SDK (stdio server calling local REST) |
 | Web dashboard | React 18 + TypeScript + Vite (served on localhost with the daemon) |
 | VS Code extension | TypeScript VS Code Extension API |
@@ -149,12 +146,12 @@ Detailed mapping lives in [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md).
 
 ---
 
-## Graph workspaces & repos
+## Graphs & repos
 
-- **`Graph`** (FalkorDB graph name): logical workspace; isolation is **by separate named graph**.
-- **`CodeRepository`**: binds a **friendly `name`** to an **`local_path`** (absolute filesystem path).
-- Multiple repos inside one Graph share one query namespace (queries must filter by `repo`/`path` deliberately).
-- Ingest jobs are **scoped** `(graph_name, repo_name)`.
+- **`Graph`** (FalkorDB graph name): one per repository; isolation is **by separate named graph**.
+- **`CodeRepository`**: binds a **friendly `name`** to an **`local_path`** (absolute filesystem path); exactly one per graph (1:1 with `Graph`).
+- Each repository lives in its own named graph, so queries need no `repo_name`/`path` cross-repo filtering.
+- Ingest jobs are **scoped** to a single `(graph_name == repo)`.
 
 ---
 
@@ -164,7 +161,7 @@ Detailed mapping lives in [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md).
 
 - Docker Desktop (or compatible runtime)
 - Python 3.12+ if running services outside Docker images
-- Installed SCIP indexer(s) + LSP server(s) per language on your PATH (exact packages TBD per language rollout)
+- Installed SCIP indexer(s) per language on your PATH (exact packages TBD per language rollout)
 
 ### 1. Start FalkorDB
 
@@ -182,7 +179,7 @@ codegraph init           # seeds ~/.codegraph/
 codegraph serve          # listens on http://127.0.0.1:8765 (+ static dashboard assets)
 ```
 
-### 3. Create a workspace & attach repos
+### 3. Create a graph & attach a repo
 
 Use the CLI or REST:
 
@@ -212,7 +209,6 @@ Paths must exist on disk; re-ingestion replaces **that repo’s subgraph** (exac
 | `CODEGRAPH_HOME` | No | Defaults to `~/.codegraph` (config, logs) |
 | `CODEGRAPH_API_BIND` | No | Default `127.0.0.1:8765` |
 | `SCIP_JAVA_BIN` / `SCIP_PYTHON_BIN` / … | No | Override SCIP indexer paths |
-| `JDTLS_HOME`, `JAVA_HOME`, … | No | LSP launcher paths (per language) |
 | `OPENAI_API_KEY` | TBD | Only if embeddings/LLM path retained |
 
 \* Required once implementation reads config from env files.
@@ -229,7 +225,7 @@ See [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) for a fuller install chec
 | [Backend_API.md](Backend_API.md) | REST surface (localhost) |
 | [PHASE0_IMPLEMENTATION.md](PHASE0_IMPLEMENTATION.md) | Phase 0: filesystem scan, classification, content hashing, structural graph write |
 | [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md) | Phase 1: SCIP extraction + code-symbol graph write |
-| [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md) | Tier DAG on FalkorDB |
+| [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md) | Phase 2 SCIP + regex labels/edges on FalkorDB |
 | [core_system/Retrival_system_README.md](core_system/Retrival_system_README.md) | Retrieval notes + **Query TBD** |
 | [core_system/documentation/Nodes.txt](core_system/documentation/Nodes.txt) | Label reference |
 | [core_system/documentation/Relationships.txt](core_system/documentation/Relationships.txt) | Edge reference |
@@ -240,7 +236,7 @@ See [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) for a fuller install chec
 
 ## Incremental graph updates (TBD)
 
-**Intent (not finalized):** combine OS-level or LSP `workspace/didChangeWatchedFiles` notifications → compute dirty file set → re-run SCIP for affected repos (or subgraph) → **`DELETE`/replace by `path`/symbol IDs** followed by constrained Phase 2 tiers on touched nodes → optional full-repo consistency pass for cross-file CALLS/OVERRIDES.
+**Intent (not finalized):** combine OS-level file-change notifications → compute dirty file set → re-run SCIP for the affected repo graph → **`DELETE`/replace by `path`/symbol IDs** followed by constrained Phase 2 passes (SCIP labels + regex + SCIP relationships) on touched nodes → optional full-repo consistency pass for cross-file CALLS/OVERRIDES.
 
 Document the chosen algorithm inside `DESKTOP_ARCHITECTURE.md` + worker docs once prototyping finishes.
 

@@ -113,11 +113,7 @@ class FalkorClient:
             raise
 
     def get_graph_stats(self, name: str) -> dict[str, int]:
-        repo_res = self._run(
-            name,
-            "MATCH (r:CodeRepository {graph_name: $gn}) RETURN count(r) AS c",
-            {"gn": name},
-        )
+        repo_res = self._run(name, "MATCH (r:CodeRepository) RETURN count(r) AS c")
         repo_count: int = repo_res.result_set[0][0] if repo_res.result_set else 0
 
         node_res = self._run(name, "MATCH (n) RETURN count(n) AS c")
@@ -136,8 +132,8 @@ class FalkorClient:
         try:
             res = self._run(
                 graph_name,
-                "MATCH (r:CodeRepository {name: $rn, graph_name: $gn}) RETURN r LIMIT 1",
-                {"rn": repo_name, "gn": graph_name},
+                "MATCH (r:CodeRepository {name: $rn}) RETURN r LIMIT 1",
+                {"rn": repo_name},
             )
             return bool(res.result_set)
         except Exception as err:
@@ -147,11 +143,24 @@ class FalkorClient:
             )
             return False
 
+    def has_repository(self, graph_name: str) -> bool:
+        """True if the graph already has any CodeRepository (one graph per repo)."""
+        try:
+            res = self._run(graph_name, "MATCH (r:CodeRepository) RETURN r LIMIT 1")
+            return bool(res.result_set)
+        except Exception as err:
+            logger.error(
+                "has_repository check failed",
+                extra={"service": _SERVICE, "graph": graph_name, "error": str(err)},
+            )
+            return False
+
     def attach_repo(self, graph_name: str, repo_name: str, local_path: str) -> None:
+        # graph_name is kept as a provenance property; the graph holds one repo.
         q = (
             "MATCH (g:Graph {name: $gn}) "
-            "MERGE (r:CodeRepository {name: $rn, graph_name: $gn}) "
-            "SET r.local_path = $lp "
+            "MERGE (r:CodeRepository {name: $rn}) "
+            "SET r.local_path = $lp, r.graph_name = $gn "
             "MERGE (g)-[:CONTAINS {order: 1}]->(r)"
         )
         self._run(graph_name, q, {"gn": graph_name, "rn": repo_name, "lp": local_path})
@@ -163,9 +172,8 @@ class FalkorClient:
     def list_repos(self, graph_name: str) -> list[dict[str, Any]]:
         res = self._run(
             graph_name,
-            "MATCH (r:CodeRepository {graph_name: $gn}) "
+            "MATCH (r:CodeRepository) "
             "RETURN r.name, r.local_path, r.last_ingested_at",
-            {"gn": graph_name},
         )
         return [
             {
@@ -181,8 +189,8 @@ class FalkorClient:
         try:
             res = self._run(
                 graph_name,
-                "MATCH (r:CodeRepository {name: $rn, graph_name: $gn}) RETURN r.local_path",
-                {"rn": repo_name, "gn": graph_name},
+                "MATCH (r:CodeRepository {name: $rn}) RETURN r.local_path",
+                {"rn": repo_name},
             )
             rows = res.result_set
             return rows[0][0] if rows else None
@@ -199,12 +207,9 @@ class FalkorClient:
             return None
 
     def delete_repo(self, graph_name: str, repo_name: str) -> None:
-        self._run(graph_name, "MATCH (n {repo_name: $rn}) DETACH DELETE n", {"rn": repo_name})
-        self._run(
-            graph_name,
-            "MATCH (r:CodeRepository {name: $rn, graph_name: $gn}) DETACH DELETE r",
-            {"rn": repo_name, "gn": graph_name},
-        )
+        # One repo per graph: clear all content but keep the :Graph anchor so the
+        # graph still exists and a repository can be re-attached.
+        self._run(graph_name, "MATCH (n) WHERE NOT n:Graph DETACH DELETE n")
         logger.info(
             "Repository deleted",
             extra={"service": _SERVICE, "graph": graph_name, "repo": repo_name},

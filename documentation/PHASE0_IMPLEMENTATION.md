@@ -2,13 +2,13 @@
 
 > **Status:** Desktop redesign (documentation)
 > **Scope:** Walk the repository filesystem, classify every entry by extension, hash file content, write the complete structural skeleton (Folder/File nodes + CONTAINS edges) to FalkorDB in a single batch.
-> **Storage:** FalkorDB (one instance, **named graph per workspace** `Graph`)
+> **Storage:** FalkorDB (one instance, **named graph per repository** `Graph` — 1:1 with `CodeRepository`)
 
 ---
 
 ## Purpose
 
-Phase 0 is the first step of every ingestion run. It produces the structural skeleton of the repository graph and records a content hash on every file node. Downstream phases (Phase 1 SCIP, Phase 2 tier DAG) consume the Phase 0 output but do not create new structural nodes.
+Phase 0 is the first step of every ingestion run. It produces the structural skeleton of the repository graph and records a content hash on every file node. Downstream phases (Phase 1 SCIP, Phase 2 SCIP + regex) consume the Phase 0 output but do not create new structural nodes.
 
 ---
 
@@ -26,7 +26,7 @@ Phase 0 is the first step of every ingestion run. It produces the structural ske
 
 | Label | Meaning | Key properties |
 |-------|---------|----------------|
-| `Graph` | Workspace (mirrors FalkorDB named graph key) | `name` |
+| `Graph` | Per-repository graph (mirrors FalkorDB named graph key, 1:1 with the repo) | `name` |
 | `CodeRepository` | Registered repo pointing at disk root | `name`, `local_path`, `graph_name` |
 | `Root` | Canonical repo root folder | `name` (repo root dir basename), `path` (posix, relative), `absolute_path`, `repo_name`, `graph_name` |
 | `Folder` | Directory beneath root | `id`, `name` (folder basename), `path`, `absolute_path`, `repo_name`, `graph_name`, `order` |
@@ -114,16 +114,16 @@ Skipped directory names (never descended into):
 All node IDs follow a deterministic composite key:
 
 ```
-id = "{graph_name}:{repo_name}:{rel_posix_path}"
+id = "{graph_name}:{rel_posix_path}"
 ```
 
 The repo root gets the fixed suffix `/`:
 
 ```
-root_id = "{graph_name}:{repo_name}:/"
+root_id = "{graph_name}:/"
 ```
 
-IDs are stable across re-ingestions for the same `(graph_name, repo_name, path)` triple, which allows the update pipeline to merge rather than re-create nodes.
+Because each repository is its own named graph, the graph name alone scopes IDs; `repo_name` is still stored on each node as a provenance property. IDs are stable across re-ingestions for the same `(graph_name, path)` pair, which allows the update pipeline to merge rather than re-create nodes.
 
 ---
 
@@ -142,7 +142,7 @@ IDs are stable across re-ingestions for the same `(graph_name, repo_name, path)`
 |-------|--------------------|---------------|
 | Phase 0 | — | Root, Folder, File nodes; CONTAINS edges |
 | Phase 1 | `ScanResult.source_files` (FileNodes with `SourceFile` label) | Code symbol nodes (Class, Method, Function, …); CONTAINS edges under each File |
-| Phase 2 | Phase 1 code nodes | Semantic edges (CALLS, OVERRIDES, IMPORTS, …); enriched properties |
+| Phase 2 | Phase 1 code nodes | SCIP labels + regex labels/properties; SCIP edges (CALLS, OVERRIDES, BELONGS_TO, …) |
 
 ---
 
@@ -150,7 +150,7 @@ IDs are stable across re-ingestions for the same `(graph_name, repo_name, path)`
 
 - Scanner implementation: `services/ingestion-worker/src/scanner.py`
 - Phase 1 (SCIP): [PHASE1_IMPLEMENTATION.md](PHASE1_IMPLEMENTATION.md)
-- Phase 2 (tier DAG): [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md)
+- Phase 2 (SCIP + regex): [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md)
 - Update pipeline (uses `content_hash`): [UPDATE_DESIGN.md](UPDATE_DESIGN.md)
 - FalkorDB operations: [falkor/README.md](../falkor/README.md)
 - Node label reference: `core_system/documentation/Nodes.txt`
