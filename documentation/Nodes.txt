@@ -33,17 +33,43 @@ Applied to `:File`-backed ingestion units (excluding structural duplicates). Mut
 
 _Overlays stack with `:File`; `SourceFile` conflicts with overlays 2-6._
 
-Code symbols extracted via SCIP share base label **`CodeVertex`** alongside semantic overlays (see label tables below).
+Code symbols extracted via SCIP share base label **`CodeVertex`** alongside the primary definition label assigned in Phase 1 (see next section).
+
+---
+
+## Phase 1 — SCIP definition labels (created from the SCIP index)
+
+Phase 1 parses `index.scip` and creates one code-symbol node per defined symbol,
+anchored under its `:File` (or enclosing symbol) via `CONTAINS`. Each node gets a
+**primary definition label** derived from `scip_kind` (descriptor suffix as fallback)
+plus the base label **`CodeVertex`**. See `PHASE1_IMPLEMENTATION.md`.
+
+| SCIP concept (`scip_kind`) | Primary label | Anchored under |
+|----------------------------|---------------|----------------|
+| Module / Namespace / Package | `Module` | `:File` |
+| Class / Struct / Object | `Class` | `:File` or enclosing symbol |
+| Interface / Protocol / Trait | `Interface` | `:File` or enclosing symbol |
+| Enum | `Enum` | `:File` or enclosing symbol |
+| Method (incl. accessor/operator kinds) | `Method` | enclosing Class / Interface |
+| Function | `Function` | `:File` or enclosing symbol |
+| Constructor | `Constructor` | enclosing Class |
+| Field / Property / Attribute / Variable / Constant / EnumMember | `Attribute` | enclosing Class / Enum |
+| Event | `Event` | enclosing symbol |
+
+Every such node also carries `scip_kind` and `scip_descriptor`, which Phase 2 reads
+to add overlay labels and relationships **without creating new nodes**.
 
 ---
 
 ## Phase 2 — Semantic labels (SCIP + regex, no tiers, no LSP)
 
-All semantic adornment aligns with `PHASE2_IMPLEMENTATION.md` and is produced by exactly one of two mechanisms — there are no tiers and no LSP:
+Phase 2 **adds no new code-symbol nodes and no primary definition labels** — those
+are created in Phase 1. It only adds overlay labels, scalar properties, and
+relationships, produced by exactly one of two mechanisms — there are no tiers and no LSP:
 
 | Mechanism | Inputs | Labels produced |
 |-----------|--------|-----------------|
-| SCIP | `scip_kind` + SCIP descriptor + SCIP relationship/occurrence stream | Definition labels (Module/Class/Interface/Method/Function/Attribute/Constructor/Enum/Event), `Object`/`Instance`, `InnerClass`, `External`, `Internal` |
+| SCIP | `scip_kind` + SCIP descriptor + SCIP relationship/occurrence stream | `Object`/`Instance`, `InnerClass`, `External`, `Internal` |
 | Regex | per-language source patterns | `Abstract`, `Lambda`, `Destructor`, `Testing`, network/DB/IPC/thread intent labels, `JavaClass`/`JavaInterface`/`JavaEnum` |
 
 `INSTANTIATES` is removed from the design. `SPAWNS` is deferred to a later milestone.
@@ -58,7 +84,8 @@ All semantic adornment aligns with `PHASE2_IMPLEMENTATION.md` and is produced by
 | `CodeRepository` | 0 | Phase 1 |
 | `Root` / `Folder` | 1 | Phase 1 |
 | `File` | structural | Phase 1 |
-| `Module` / `Class` / `Enum` / `Interface` / callables … | varies | Phase 2 SCIP labels |
+| `Module` / `Class` / `Enum` / `Interface` / callables … | varies | Phase 1 (SCIP definition labels) |
+| `Object`/`Instance` / `InnerClass` / `External` / `Internal` | overlay | Phase 2 SCIP labels |
 
 Nodes do **not** include remote blob keys or multi-tenant scope columns; scope is the Falkor graph name (one graph per repository).
 

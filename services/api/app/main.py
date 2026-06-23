@@ -20,8 +20,9 @@ from app.models import HealthResponse, VersionResponse
 from app.routers import graphs, repositories
 
 # ---------------------------------------------------------------------------
-# Logging — structured format; extra={} fields are preserved for any JSON
-# formatter dropped in front of this handler in production.
+# Logging — structured format. ExtraFieldFormatter appends any extra={...}
+# context (service, language, exit_code, stderr_tail, ...) to each line so the
+# diagnostics we attach are actually rendered on the console.
 # ---------------------------------------------------------------------------
 
 logging.config.dictConfig(
@@ -30,6 +31,7 @@ logging.config.dictConfig(
         "disable_existing_loggers": False,
         "formatters": {
             "structured": {
+                "()": "app.logging_utils.ExtraFieldFormatter",
                 "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
                 "datefmt": "%Y-%m-%dT%H:%M:%S",
             }

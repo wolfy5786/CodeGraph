@@ -1,7 +1,7 @@
 # Phase 2 Implementation -- Semantic Labels and Relationships
 
 > **Status**: Redesigned (documentation)
-> **Prerequisite**: Phase 1 must be complete (filesystem skeleton + `:File` linkage + semantic symbols with `scip_kind` / `scip_descriptor` / `detail`, all `CONTAINS` edges written to the FalkorDB **named graph** for this repository).
+> **Prerequisite**: Phase 1 must be complete (filesystem skeleton + `:File` linkage + code-symbol nodes that already carry their **primary definition label** — `Class`/`Method`/`Function`/… — plus the `CodeVertex` base label, `scip_kind`, `scip_descriptor`, and all `CONTAINS` edges, written to the FalkorDB **named graph** for this repository).
 > **Core rule**: Phase 2 does NOT create new code-symbol nodes. It only adds labels, properties, and relationships to the existing node set created in Phase 1.
 
 ---
@@ -10,7 +10,7 @@
 
 1. **No new nodes.** Phase 2 operates exclusively on the node set created by Phase 1. (The only exception is an `External` stub already materialized in Phase 1 for a referenced-but-undefined symbol — Phase 2 labels it, it does not create it.)
 2. **Single pass — no tiers, no DAG, no ordering.** Every label, property, and relationship is derived independently from data that already exists when Phase 2 starts:
-   - **SCIP** — the SCIP index parsed in Phase 1 (`scip_kind`, the `Occurrence` stream, and `Relationship` records). Source of all *definition* labels, the `Object` label, the `External` label, and the relationships `INHERITS`, `IMPLEMENTS`, `CALLS`, `SETS`, `GETS`, `OVERRIDES`, `BELONGS_TO`.
+   - **SCIP** — the SCIP index parsed in Phase 1 (`scip_kind`, the `Occurrence` stream, and `Relationship` records). Source of the *overlay* labels `Object`/`Instance`, `InnerClass`, `External`/`Internal`, and the relationships `INHERITS`, `IMPLEMENTS`, `CALLS`, `SETS`, `GETS`, `OVERRIDES`, `BELONGS_TO`. (The primary *definition* labels — `Class`/`Method`/`Function`/… — are already set in Phase 1 from `scip_kind`; Phase 2 does not re-apply them.)
    - **Regex** — language-specific source patterns. Source of every remaining label (modifier/intent labels) and the scalar properties.
    There is **no LSP** in the ingestion pipeline.
 3. **No node or relationship depends on another Phase-2 output.** Each node's labels/properties are a pure function of its own `scip_kind` / `scip_descriptor` / source text. Each relationship is a `(source_symbol, target_symbol)` pair drawn from SCIP (or a regex match), and **both endpoints are resolved to node ids through the symbol→id map built up front** (see *Symbol Resolution*), never by reading a label or edge that Phase 2 itself wrote. Because nothing reads Phase-2 state, the work can run in any order / fully in parallel and still be deterministic.
@@ -63,29 +63,31 @@ This map is the *only* lookup structure relationships need, and it is derived en
 
 For each node (work units may be partitioned by node for SCIP/label work and by file for regex work, and processed in parallel), compute and accumulate **all** of the following, then flush once:
 
-### A. SCIP labels & properties (per node, from `scip_kind` / `scip_descriptor`)
+### A. SCIP overlay labels & properties (per node, from `scip_kind` / `scip_descriptor`)
 
-**Definition labels (kind-driven).** Inspect `scip_kind` and apply the label mapping.
+**Primary definition labels already exist.** Each code-symbol node was created in
+Phase 1 with its primary definition label (`Module`/`Class`/`Interface`/`Enum`/
+`Method`/`Function`/`Constructor`/`Attribute`/`Event`) plus the `CodeVertex` base
+label, derived from `scip_kind`. Phase 2 does **not** re-create or re-label these
+nodes — it reads `scip_kind` only to (a) add the overlay labels below and (b) filter
+the relationship rules.
 
-**Kind-driven label mapping (illustrative — verify against authoritative SCIP `SymbolKind`; track the protobuf enum verbatim and regenerate bindings from `scip.proto` for production):**
+**`scip_kind` → definition label (reference — set in Phase 1).** These are the real
+SCIP `SymbolKind` ordinals emitted by `services/ingestion-worker/src/scip_parser.py`
+and documented in `Nodes.txt`; Phase 2 relationship `kind_filter`s reference the same
+ordinals.
 
-| scip_kind (illustr.) | Equivalent concept | Labels Added |
-|------|----------------|-------------------------|
-| 2    | Module         | Module                  |
-| 5    | Class          | Class                   |
-| 6    | Method         | CodeUnit, Method        |
-| 7    | Property       | Attribute               |
-| 8    | Field          | Attribute               |
-| 9    | Constructor    | Constructor             |
-| 10   | Enum           | Enum                    |
-| 11   | Interface      | Interface               |
-| 12   | Function       | CodeUnit, Function      |
-| 13   | Variable       | Attribute               |
-| 14   | Constant       | Attribute               |
-| 22   | EnumMember     | Attribute               |
-| 23   | Struct         | Class                   |
-| 24   | Event          | Event                   |
-| 25   | Operator       | CodeUnit, Method        |
+| `scip_kind` | SCIP `SymbolKind` | Phase 1 primary label |
+|-------------|-------------------|-----------------------|
+| 27 / 28 / 33 / 34 | Module / Namespace / Package | `Module` |
+| 7 / 46 / 31 / 52 / 53 | Class / Struct / Object / Type / TypeAlias | `Class` |
+| 20 / 40 / 50 / 54 | Interface / Protocol / Trait / TypeClass | `Interface` |
+| 11 | Enum | `Enum` |
+| 9 | Constructor | `Constructor` |
+| 16 | Function | `Function` |
+| 25 (+ 17 / 43 / 51 / 55 / 64–67 / 70 / 72 / 74 / 76) | Method (+ accessor / operator kinds) | `Method` |
+| 4 / 8 / 12 / 15 / 21 / 39 / 59 / 60 | Attribute / Constant / EnumMember / Field / Key / Property / Value / Variable | `Attribute` |
+| 13 | Event | `Event` |
 
 **`Object` label (SCIP).** Marks an attribute-like symbol whose declared type is a reference type (a class/struct), **Java and C++ only** (NOT Python — dynamic typing makes type labels unreliable). Derived from SCIP, without LSP:
 
@@ -105,7 +107,7 @@ Primitive type exclusion lists are language-specific:
 
 | Property | Source | Example |
 |----------|--------|---------|
-| `level` | Derived from primary label (see level table in `Nodes.txt`) | Class → 2, Method → 3 |
+| `level` | Derived from the Phase-1 primary label (see level table in `Nodes.txt`) | Class → 2, Method → 3 |
 | `reference_type_detail` | SCIP declared-type symbol (Object nodes only) | `com.acme.PaymentGateway` |
 
 ### B. Regex labels & properties (per file, from source text)
@@ -295,24 +297,23 @@ class LanguageStrategy(ABC):
 
 ### Common Strategy (base for all languages)
 
-`common.py` provides the SCIP kind-based label mapping, level assignment, and the `Internal` default. All language strategies inherit from `CommonStrategy`:
+`common.py` provides the `Internal` default, the `Object`/`InnerClass`/`External`
+overlay logic, level assignment, and the shared relationship rules. (The primary
+definition labels — `Class`/`Method`/… — are set in Phase 1, not here.) All language
+strategies inherit from `CommonStrategy`:
 
 ```python
 class CommonStrategy(LanguageStrategy):
     """Shared rules that work for all languages."""
     def scip_label_rules(self):
+        # Primary definition labels (Class/Method/Function/…) are set in Phase 1
+        # from scip_kind — Phase 2 does NOT re-apply them. The Phase 2 SCIP labels
+        # are the overlays below; Object/InnerClass/External need dedicated logic
+        # (declared-type resolution / descriptor hierarchy / occurrence absence)
+        # rather than a plain kind filter, so only the Internal default is a kind rule.
         return [
-            LabelRule("Class", "scip", {5, 23}, None, "kind", None),
-            LabelRule("Interface", "scip", {11}, None, "kind", None),
-            LabelRule("CodeUnit", "scip", {6, 12}, None, "kind", None),
-            LabelRule("Method", "scip", {6}, None, "kind", None),
-            LabelRule("Function", "scip", {12}, None, "kind", None),
-            LabelRule("Attribute", "scip", {7, 8, 13, 14, 22}, None, "kind", None),
-            LabelRule("Constructor", "scip", {9}, None, "kind", None),
-            LabelRule("Enum", "scip", {10}, None, "kind", None),
-            LabelRule("Module", "scip", {2}, None, "kind", None),
-            LabelRule("Event", "scip", {24}, None, "kind", None),
             LabelRule("Internal", "scip", None, None, "kind", None),
+            # Object, InnerClass, External applied by dedicated single-pass logic
         ]
     # ... scip_relationship_rules, regex_label_rules, regex_property_extractors
 ```
@@ -325,20 +326,20 @@ class JavaStrategy(CommonStrategy):
     def regex_label_rules(self):
         base = super().regex_label_rules()
         return base + [
-            LabelRule("JavaClass", "regex", {5}, None, "kind", {"java"}),
-            LabelRule("JavaInterface", "regex", {11}, None, "kind", {"java"}),
-            LabelRule("JavaEnum", "regex", {10}, None, "kind", {"java"}),
-            LabelRule("Abstract", "regex", {5, 6}, r"\babstract\b", "source", {"java"}),
-            LabelRule("Testing", "regex", {5, 6}, r"@Test|@Before|@After|@BeforeEach|@AfterEach", "annotations", {"java"}),
-            LabelRule("Accept_call_over_network", "regex", {6}, r"@RequestMapping|@GetMapping|@PostMapping|@PutMapping|@DeleteMapping|@RestController", "annotations", {"java"}),
+            LabelRule("JavaClass", "regex", {7}, None, "kind", {"java"}),
+            LabelRule("JavaInterface", "regex", {20}, None, "kind", {"java"}),
+            LabelRule("JavaEnum", "regex", {11}, None, "kind", {"java"}),
+            LabelRule("Abstract", "regex", {7, 25}, r"\babstract\b", "source", {"java"}),
+            LabelRule("Testing", "regex", {7, 25}, r"@Test|@Before|@After|@BeforeEach|@AfterEach", "annotations", {"java"}),
+            LabelRule("Accept_call_over_network", "regex", {25}, r"@RequestMapping|@GetMapping|@PostMapping|@PutMapping|@DeleteMapping|@RestController", "annotations", {"java"}),
             # ... more Java-specific regex rules
         ]
 
     def scip_relationship_rules(self):
         base = super().scip_relationship_rules()
         return base + [
-            RelationshipRule("INHERITS", "scip", {5}, {5, 11}, r"class\s+\w+\s+extends\s+(\w+)", {"java"}),
-            RelationshipRule("IMPLEMENTS", "scip", {5}, {11}, r"implements\s+([\w,\s]+)", {"java"}),
+            RelationshipRule("INHERITS", "scip", {7}, {7, 20}, r"class\s+\w+\s+extends\s+(\w+)", {"java"}),
+            RelationshipRule("IMPLEMENTS", "scip", {7}, {20}, r"implements\s+([\w,\s]+)", {"java"}),
         ]
 ```
 
@@ -346,9 +347,16 @@ class JavaStrategy(CommonStrategy):
 
 ## Language-Specific Classification
 
+> The **definition labels** in each "SCIP labels" list below (`Class`, `Interface`,
+> `Enum`, `Method`, `Function`, `Constructor`, `Attribute`, `Module`, `Event`) are
+> created in **Phase 1** from `scip_kind`; every code-symbol node also carries the
+> `CodeVertex` base label. **Phase 2** adds only the SCIP *overlays* (`Object`/
+> `Instance`, `InnerClass`, `External`, `Internal`), the regex labels, the scalar
+> properties, and the relationships.
+
 ### Java
 
-**SCIP labels:** Class, Interface, Enum, CodeUnit, Method, Function, Attribute, Constructor, Event, Object/Instance (reference-type fields via SCIP type relationships), InnerClass, External, Internal
+**SCIP labels:** Class, Interface, Enum, Method, Function, Attribute, Constructor, Event, Object/Instance (reference-type fields via SCIP type relationships), InnerClass, External, Internal
 
 **Regex labels:** Lambda, Abstract, Testing (@Test, @Before, @After, @BeforeEach, @AfterEach), JavaClass, JavaInterface, JavaEnum, Accept_call_over_network (@RequestMapping, @GetMapping, @PostMapping, @PutMapping, @DeleteMapping), Sends_data_over_network (HttpURLConnection, RestTemplate, WebClient, OkHttpClient), Database (@Repository, @Query, JPA annotations, JDBC), Forks Threads/Process (new Thread(), ExecutorService.submit()), Thread (Runnable.run(), Callable.call())
 
@@ -358,7 +366,7 @@ class JavaStrategy(CommonStrategy):
 
 ### C++
 
-**SCIP labels:** Class, Interface (abstract class with pure virtual methods), Enum, CodeUnit, Method, Function, Attribute, Constructor, Event, Object/Instance (reference-type fields), InnerClass, External, Internal
+**SCIP labels:** Class, Interface (abstract class with pure virtual methods), Enum, Method, Function, Attribute, Constructor, Event, Object/Instance (reference-type fields), InnerClass, External, Internal
 
 **Regex labels:** Destructor (~name), Lambda ([](){}), Abstract (= 0, virtual), Testing (TEST(), TEST_F(), TEST_P(), EXPECT_*, ASSERT_*), InterProcess Communication (pipe, shm_open, mq_open), Thread Communication (std::mutex, std::condition_variable, sem_wait), Forks Threads/Process (std::thread, fork(), pthread_create)
 
@@ -368,7 +376,7 @@ class JavaStrategy(CommonStrategy):
 
 ### Python
 
-**SCIP labels:** Class, Module, Enum, CodeUnit, Method, Function, Attribute, Constructor (__init__), Event, InnerClass, External, Internal (NO Object/Instance — dynamic typing makes type labels unreliable)
+**SCIP labels:** Class, Module, Enum, Method, Function, Attribute, Constructor (__init__), Event, InnerClass, External, Internal (NO Object/Instance — dynamic typing makes type labels unreliable)
 
 **Regex labels:** Destructor (__del__), Lambda, Abstract (ABC, @abstractmethod), Testing (test_* function names, @pytest.mark.*, unittest.TestCase subclass), Accept_call_over_network (Flask @app.route, Django urlpatterns, FastAPI @router.get), Sends_data_over_network (requests.*, urllib.request, aiohttp.ClientSession), Database (SQLAlchemy, psycopg2, pymongo, redis), Forks Threads/Process (threading.Thread, multiprocessing.Process, os.fork)
 
@@ -378,7 +386,7 @@ class JavaStrategy(CommonStrategy):
 
 ### JavaScript / TypeScript
 
-**SCIP labels:** Class, Interface (TS only), Module, Enum (TS only), CodeUnit, Method, Function, Attribute, Constructor, Object/Instance (TS only, reference-type fields), InnerClass, External, Internal
+**SCIP labels:** Class, Interface (TS only), Module, Enum (TS only), Method, Function, Attribute, Constructor, Object/Instance (TS only, reference-type fields), InnerClass, External, Internal
 
 **Regex labels:** Lambda (arrow =>), Abstract (TS abstract keyword), Testing (describe, it, test, expect from Jest/Mocha/Vitest), Accept_call_over_network (Express app.get/post/put/delete, Fastify route), Sends_data_over_network (fetch, axios.*, XMLHttpRequest, node-fetch), Database (mongoose, knex, sequelize, prisma, TypeORM)
 
@@ -420,7 +428,8 @@ These read-only methods support relationship resolution. All helper queries exec
 
 ```
 Phase 1 (see PHASE1_IMPLEMENTATION.md):
-  Multi-threaded file processing -> nodes (CodeNode + file-type labels) + CONTAINS
+  Multi-threaded file processing -> code-symbol nodes (CodeVertex + primary
+    definition label from scip_kind) + file-type overlays on :File + CONTAINS
   Each node carries scip_descriptor (SCIP symbol) + scip_kind
   Write to the repository's FalkorDB graph
 
@@ -430,8 +439,9 @@ Phase 2 (single pass):
   Initialize WriteAheadLog
 
   For each node (fan out across threads; partition by node for SCIP, by file for regex):
-    SCIP labels   : kind-based definition labels, Object (+reference_type_detail),
-                    InnerClass, External/Internal, level
+    SCIP overlays : Object (+reference_type_detail), InnerClass, External/Internal,
+                    Internal default, level
+                    (primary definition labels already exist from Phase 1 — not re-applied)
     Regex labels  : modifier/intent labels + scalar properties (return_type,
                     parameter_types, access_modifier, modifiers, annotations, is_static)
     SCIP edges    : INHERITS/IMPLEMENTS (records + regex fallback),

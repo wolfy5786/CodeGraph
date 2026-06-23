@@ -1,10 +1,11 @@
-"""Phase 1 pipeline — SCIP indexer dispatch.
+"""Phase 1 pipeline — SCIP extraction and code-symbol graph write.
 
 Receives a ScanResult from Phase 0, partitions source files by language,
-spawns the appropriate SCIP indexer per language concurrently, and
-collects IndexerRun records for downstream SCIP parsing.
+spawns the appropriate SCIP indexer per language concurrently, decodes each
+emitted ``index.scip`` into code-symbol nodes and ``CONTAINS`` edges, and
+batch-writes them to FalkorDB (separate from the Phase 0 structural write).
 
-No code-symbol node creation or CONTAINS edge writes happen here.
+See ``documentation/PHASE1_IMPLEMENTATION.md``.
 """
 
 from __future__ import annotations
@@ -14,12 +15,18 @@ import os
 import subprocess
 import tempfile
 import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from scip_parser import CodeSymbolNode, ContainsEdge, parse_scip_file
+
 if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
+
+    from graph_writer import GraphWriter
     from scanner import ScanResult
 
 logger = logging.getLogger(__name__)
@@ -165,11 +172,14 @@ class IndexerRun:
 
 @dataclass
 class Phase1Result:
-    """Aggregated outcome of all indexer runs for one repository."""
+    """Aggregated outcome of all indexer runs and the code-symbol write."""
 
     graph_name: str
     repo_name: str
     runs: list[IndexerRun] = field(default_factory=list)
+    nodes_written: int = 0
+    edges_written: int = 0
+    parse_errors: int = 0
 
     @property
     def successful_runs(self) -> list[IndexerRun]:
@@ -204,12 +214,15 @@ def _output_dir(graph_name: str, repo_name: str, language: str) -> Path:
 # ---------------------------------------------------------------------------
 
 class Phase1Pipeline:
-    """Dispatch SCIP indexers for all languages present in a ScanResult.
+    """SCIP extraction → code-symbol nodes/edges → batch graph write.
 
     Call order expected by the ingestion service:
         1. Phase0Pipeline.run(scan_result, writer)
-        2. Phase1Pipeline.run(scan_result)      ← this class
-        3. (future) parse IndexerRun.scip_path values into code-symbol nodes
+        2. Phase1Pipeline.run(scan_result, writer)   ← this class
+
+    ``run`` dispatches the SCIP indexers, decodes each ``index.scip`` into
+    code-symbol nodes and ``CONTAINS`` edges, and (when a writer is supplied)
+    flushes them to FalkorDB in a single batch.
     """
 
     def __init__(
@@ -220,7 +233,12 @@ class Phase1Pipeline:
         self._timeout_s = timeout_s
         self._max_workers = max_workers
 
-    def run(self, scan_result: "ScanResult") -> Phase1Result:
+    def run(
+        self,
+        scan_result: "ScanResult",
+        writer: "GraphWriter | None" = None,
+        write_lock: "AbstractContextManager | None" = None,
+    ) -> Phase1Result:
         gn = scan_result.graph_name
         rn = scan_result.repo_name
 
@@ -324,7 +342,7 @@ class Phase1Pipeline:
         failed = [r for r in runs if not r.succeeded]
 
         logger.info(
-            "Phase 1 complete",
+            "SCIP indexers complete",
             extra={
                 "service": _SERVICE,
                 "graph": gn,
@@ -336,7 +354,135 @@ class Phase1Pipeline:
             },
         )
 
-        return Phase1Result(graph_name=gn, repo_name=rn, runs=runs)
+        result = Phase1Result(graph_name=gn, repo_name=rn, runs=runs)
+        self._parse_and_write(result, writer, write_lock)
+        return result
+
+    # ------------------------------------------------------------------
+    # SCIP parse + batch write
+    # ------------------------------------------------------------------
+
+    def _parse_and_write(
+        self,
+        result: Phase1Result,
+        writer: "GraphWriter | None",
+        write_lock: "AbstractContextManager | None" = None,
+    ) -> None:
+        """Decode every successful index.scip into nodes/edges and flush once.
+
+        Parsing runs without ``write_lock``; only the batch write acquires it so
+        concurrent ingests for other repos are not blocked during SCIP decode.
+        """
+        gn = result.graph_name
+        rn = result.repo_name
+
+        nodes: dict[str, CodeSymbolNode] = {}
+        edges: dict[tuple[str, str], ContainsEdge] = {}
+        for run in result.successful_runs:
+            try:
+                graph = parse_scip_file(run.scip_path, gn, run.language)
+            except Exception as err:  # noqa: BLE001 — one bad index must not abort
+                result.parse_errors += 1
+                logger.error(
+                    "Failed to parse SCIP index",
+                    extra={
+                        "service": _SERVICE,
+                        "graph": gn,
+                        "repo": rn,
+                        "language": run.language,
+                        "scip_path": run.scip_path,
+                        "error": str(err),
+                    },
+                )
+                continue
+            result.parse_errors += graph.parse_errors
+            for node in graph.nodes:
+                nodes.setdefault(node.id, node)          # first writer wins on id clash
+            for edge in graph.edges:
+                edges.setdefault((edge.from_id, edge.to_id), edge)
+
+        if not nodes:
+            logger.info(
+                "Phase 1 complete — no code symbols extracted",
+                extra={
+                    "service": _SERVICE,
+                    "graph": gn,
+                    "repo": rn,
+                    "parse_errors": result.parse_errors,
+                },
+            )
+            return
+
+        if writer is None:
+            logger.warning(
+                "Phase 1 parsed code symbols but no writer was supplied — skipping write",
+                extra={"service": _SERVICE, "graph": gn, "repo": rn, "nodes": len(nodes)},
+            )
+            return
+
+        if write_lock is not None:
+            with write_lock:
+                self._write_graph(writer, gn, rn, list(nodes.values()), list(edges.values()))
+        else:
+            self._write_graph(writer, gn, rn, list(nodes.values()), list(edges.values()))
+        result.nodes_written = len(nodes)
+        result.edges_written = len(edges)
+
+        logger.info(
+            "Phase 1 complete",
+            extra={
+                "service": _SERVICE,
+                "graph": gn,
+                "repo": rn,
+                "nodes_written": result.nodes_written,
+                "edges_written": result.edges_written,
+                "parse_errors": result.parse_errors,
+            },
+        )
+
+    def _write_graph(
+        self,
+        writer: "GraphWriter",
+        graph_name: str,
+        repo_name: str,
+        nodes: list[CodeSymbolNode],
+        edges: list[ContainsEdge],
+    ) -> None:
+        """Batch-write code-symbol nodes (grouped by label) then CONTAINS edges."""
+        by_label: dict[str, list[dict]] = defaultdict(list)
+        for node in nodes:
+            by_label[node.primary_label].append({
+                "id": node.id,
+                "props": node.to_props(graph_name, repo_name),
+                "extra_labels": ["CodeVertex"],
+            })
+
+        for label, rows in by_label.items():
+            writer.batch_upsert_nodes(graph_name, rows, label)
+            logger.info(
+                "Code-symbol nodes written",
+                extra={
+                    "service": _SERVICE,
+                    "graph": graph_name,
+                    "repo": repo_name,
+                    "label": label,
+                    "count": len(rows),
+                },
+            )
+
+        edge_rows = [
+            {"from": e.from_id, "to": e.to_id, "order": e.order} for e in edges
+        ]
+        writer.batch_create_contains_edges_ordered(graph_name, edge_rows)
+        logger.info(
+            "Code CONTAINS edges written",
+            extra={
+                "service": _SERVICE,
+                "graph": graph_name,
+                "repo": repo_name,
+                "count": len(edge_rows),
+            },
+        )
 
     # ------------------------------------------------------------------
     # Internal

@@ -4,7 +4,7 @@ Keyed by (graph_name, repo_name). A real implementation would persist to
 Redis or a sqlite sidecar; this stub is intentionally ephemeral.
 
 Status lifecycle:
-    queued → phase0_running → done | failed
+    queued → phase0_running → phase1_running → done | failed
 """
 
 from __future__ import annotations

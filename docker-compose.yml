@@ -3,6 +3,11 @@ services:
   falkordb:
     image: falkordb/falkordb:latest
     container_name: codegraph-falkor
+    environment:
+      # Stable key for the bundled FalkorDB Browser's AES-GCM credential encryption.
+      # Without a stable key it logs "Failed to resolve connection password (non-fatal):
+      # Unsupported state or unable to authenticate data" on every connection attempt.
+      ENCRYPTION_KEY: ${FALKOR_BROWSER_ENCRYPTION_KEY}
     ports:
       - "127.0.0.1:6379:6379"   # expose to host for local dev/inspection
       - "127.0.0.1:3000:3000"   # FalkorDB browser UI

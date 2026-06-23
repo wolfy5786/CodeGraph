@@ -71,6 +71,11 @@ class GraphWriter:
             "CREATE INDEX FOR (n:Class) ON (n.name)",
             "CREATE INDEX FOR (n:Method) ON (n.name)",
             "CREATE INDEX FOR (n:Function) ON (n.name)",
+            "CREATE INDEX FOR (n:Interface) ON (n.name)",
+            "CREATE INDEX FOR (n:Enum) ON (n.name)",
+            "CREATE INDEX FOR (n:Module) ON (n.name)",
+            "CREATE INDEX FOR (n:Attribute) ON (n.name)",
+            "CREATE INDEX FOR (n:CodeVertex) ON (n.path)",
         ]
         for ddl in ddls:
             try:
@@ -276,6 +281,34 @@ class GraphWriter:
         self._run(graph_name, q, {"edges": [{"from_id": e["from"], "to_id": e["to"]} for e in edges]})
         logger.debug(
             "Batch created CONTAINS edges",
+            extra={"service": "graph_writer", "graph": graph_name, "count": len(edges)},
+        )
+
+    def batch_create_contains_edges_ordered(
+        self,
+        graph_name: str,
+        edges: list[dict[str, Any]],
+    ) -> None:
+        """Bulk MERGE CONTAINS edges carrying an `order` property.
+
+        Each item: {"from": str, "to": str, "order": int}. Used by Phase 1 to
+        record sibling ordering on File→symbol and symbol→symbol edges.
+        """
+        if not edges:
+            return
+        q = (
+            "UNWIND $edges AS e "
+            "MATCH (a {id: e.from_id}), (b {id: e.to_id}) "
+            "MERGE (a)-[rel:CONTAINS]->(b) "
+            "SET rel.order = e.order"
+        )
+        rows = [
+            {"from_id": e["from"], "to_id": e["to"], "order": e["order"]}
+            for e in edges
+        ]
+        self._run(graph_name, q, {"edges": rows})
+        logger.debug(
+            "Batch created ordered CONTAINS edges",
             extra={"service": "graph_writer", "graph": graph_name, "count": len(edges)},
         )
 

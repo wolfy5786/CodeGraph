@@ -35,19 +35,26 @@ Every Phase 2 edge is built from the SCIP index (relationship records + occurren
 | `IMPLEMENTS` | SCIP relationship records | `implements` regex / analogous |
 | `CALLS` | reference `Occurrence` to a callable inside a callable's range | — |
 | `SETS` / `GETS` | `Occurrence` `SymbolRole.WriteAccess` / `ReadAccess` on attributes → enclosing callable | — |
-| `OVERRIDES` | SCIP `is_implementation` relationship | graph rule: inherited parent method of same name |
-| `BELONGS_TO` | `Object` `reference_type_detail` (SCIP type) → Class | — |
+| `OVERRIDES` | SCIP `is_implementation` relationship | — (none — no edge if `is_implementation` is absent; logged at debug) |
+| `BELONGS_TO` | `Object` `reference_type_detail` (SCIP type symbol) → Class | — |
 
-Resolution example:
+Resolution:
+
+Every relationship target is a SCIP symbol string, resolved through the in-memory
+`symbol_to_id` map (`{scip_descriptor: node_id}`) built once at the start of Phase 2 —
+never by matching a Phase-2 label. A miss means the symbol is defined outside this
+repository → `External`. The one name-based path is the regex inheritance fallback,
+which resolves a parent's simple name via Phase-1 `name` + class-like `scip_kind`
+(`get_nodes_by_name_and_class_kind`), not by label:
 
 ```text
-MATCH (n {name:$simple})
-WHERE labels include Class/Interface
+MATCH (n {name: $simple})
+WHERE n.scip_kind IN $class_kinds   // Phase-1 kind, never a Phase-2 label
 ```
 
 Line-range matching for `CALLS`/`SETS`/`GETS` keys on **path + start_line/end_line** within the repo graph.
 
-`InnerClass` is a SCIP label (nested class descriptor), documented in `Nodes.txt`.
+`InnerClass` is a Phase-2 SCIP overlay label (nested class descriptor), documented in `Nodes.txt`.
 
 ---
 

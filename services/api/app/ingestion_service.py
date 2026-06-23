@@ -46,7 +46,8 @@ if _WORKER_SRC not in sys.path:
 
 from graph_writer import GraphWriter  # noqa: E402
 from phase0 import Phase0Pipeline     # noqa: E402
-from scanner import Scanner           # noqa: E402
+from phase1 import Phase1Pipeline     # noqa: E402
+from scanner import Scanner, ScanResult  # noqa: E402
 
 from app import job_store, update_store
 from app.config import FALKOR_HOST, FALKOR_PASSWORD, FALKOR_PORT
@@ -87,11 +88,12 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ingest-phase0"
 # ---------------------------------------------------------------------------
 
 
-def _run_phase0_sync(graph: str, repo: str, local_path: str) -> None:
+def _run_phase0_sync(graph: str, repo: str, local_path: str) -> ScanResult:
     """Scan the filesystem then batch-write structural nodes to FalkorDB.
 
     Scanning is I/O-bound but touches no DB — it runs without the write lock.
-    All FalkorDB writes are serialised through _write_lock.
+    All FalkorDB writes are serialised through _write_lock. The ScanResult is
+    returned so Phase 1 can plan SCIP indexers from the same source-file list.
     """
     logger.info(
         "Phase 0 scan starting",
@@ -129,6 +131,52 @@ def _run_phase0_sync(graph: str, repo: str, local_path: str) -> None:
             )
             raise
 
+    return scan_result
+
+
+def _run_phase1_sync(scan_result: ScanResult) -> None:
+    """Dispatch SCIP indexers, parse index.scip, and batch-write code symbols.
+
+    Indexer subprocesses and protobuf decoding run without the DB write lock;
+    only the final batch write acquires _write_lock (passed into the pipeline),
+    so other repositories' Phase 0/1 writes are not blocked during SCIP decode.
+    """
+    graph = scan_result.graph_name
+    repo = scan_result.repo_name
+
+    logger.info(
+        "Phase 1 starting",
+        extra={
+            "service": _SERVICE,
+            "graph": graph,
+            "repo": repo,
+            "source_files": len(scan_result.source_files),
+        },
+    )
+
+    writer = _get_shared_writer()
+    try:
+        result = Phase1Pipeline().run(scan_result, writer, write_lock=_write_lock)
+    except Exception as err:
+        logger.error(
+            "Phase 1 pipeline failed",
+            extra={"service": _SERVICE, "graph": graph, "repo": repo, "error": str(err)},
+        )
+        raise
+
+    logger.info(
+        "Phase 1 finished",
+        extra={
+            "service": _SERVICE,
+            "graph": graph,
+            "repo": repo,
+            "nodes_written": result.nodes_written,
+            "edges_written": result.edges_written,
+            "failed_runs": len(result.failed_runs),
+            "parse_errors": result.parse_errors,
+        },
+    )
+
 
 # ---------------------------------------------------------------------------
 # Public async entry point
@@ -154,13 +202,13 @@ async def run_ingest(
         extra={"service": _SERVICE, "graph": graph, "repo": repo, "job_id": job_id},
     )
 
-    await job_store.update_job(graph, repo, "phase0_running", phase="phase0")
-
     loop = asyncio.get_running_loop()
 
     async with slot.write_lock:
+        # Phase 0 — filesystem skeleton + structural write.
+        await job_store.update_job(graph, repo, "phase0_running", phase="phase0")
         try:
-            await loop.run_in_executor(
+            scan_result = await loop.run_in_executor(
                 _EXECUTOR,
                 _run_phase0_sync,
                 graph,
@@ -169,7 +217,29 @@ async def run_ingest(
             )
         except Exception as err:
             logger.error(
-                "Ingestion failed",
+                "Ingestion failed in Phase 0",
+                extra={
+                    "service": _SERVICE,
+                    "graph": graph,
+                    "repo": repo,
+                    "job_id": job_id,
+                    "error": str(err),
+                },
+            )
+            await job_store.update_job(graph, repo, "failed", error=str(err))
+            return
+
+        # Phase 1 — SCIP extraction + code-symbol write.
+        await job_store.update_job(graph, repo, "phase1_running", phase="phase1")
+        try:
+            await loop.run_in_executor(
+                _EXECUTOR,
+                _run_phase1_sync,
+                scan_result,
+            )
+        except Exception as err:
+            logger.error(
+                "Ingestion failed in Phase 1",
                 extra={
                     "service": _SERVICE,
                     "graph": graph,
