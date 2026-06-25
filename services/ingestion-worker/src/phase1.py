@@ -194,6 +194,22 @@ class Phase1Result:
 # Helpers
 # ---------------------------------------------------------------------------
 
+_STDERR_HEAD_CHARS: int = int(os.getenv("SCIP_STDERR_HEAD_CHARS", "1500"))
+_STDERR_TAIL_CHARS: int = int(os.getenv("SCIP_STDERR_TAIL_CHARS", "500"))
+
+
+def _split_head_tail(text: str) -> tuple[str, str]:
+    """Return (head, tail) slices of indexer stderr for logging.
+
+    The head holds the thrown error type and the offending file (top of a
+    Node/Pyright stack trace); the tail holds the bottom frames. When the text
+    fits inside the head budget the tail is returned empty to avoid duplication.
+    """
+    head = text[:_STDERR_HEAD_CHARS]
+    tail = text[-_STDERR_TAIL_CHARS:] if len(text) > _STDERR_HEAD_CHARS else ""
+    return head, tail
+
+
 def _output_dir(graph_name: str, repo_name: str, language: str) -> Path:
     """Deterministic scratch directory for one indexer run.
 
@@ -537,6 +553,7 @@ class Phase1Pipeline:
             stderr_text = proc.stderr or ""
 
             if exit_code != 0:
+                stderr_head, stderr_tail = _split_head_tail(stderr_text)
                 logger.error(
                     "SCIP indexer exited with non-zero code",
                     extra={
@@ -545,7 +562,11 @@ class Phase1Pipeline:
                         "repo": rn,
                         "language": language,
                         "exit_code": exit_code,
-                        "stderr_tail": stderr_text[-500:],
+                        # Head carries the thrown error/type and offending file;
+                        # tail carries the bottom of the stack trace.
+                        "stderr_head": stderr_head,
+                        "stderr_tail": stderr_tail,
+                        "stderr_len": len(stderr_text),
                     },
                 )
             else:

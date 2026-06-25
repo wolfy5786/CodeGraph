@@ -157,27 +157,36 @@ Detailed mapping lives in [DESKTOP_ARCHITECTURE.md](DESKTOP_ARCHITECTURE.md).
 
 ## Getting started (local desktop)
 
+Only FalkorDB runs in a container. The backend API (which also serves the web
+dashboard) and the ingestion worker run **natively on the host**.
+
 ### Prerequisites
 
-- Docker Desktop (or compatible runtime)
-- Python 3.12+ if running services outside Docker images
-- Installed SCIP indexer(s) per language on your PATH (exact packages TBD per language rollout)
+- Docker Desktop (or compatible runtime) — for FalkorDB only
+- Python 3.12+
+- Installed SCIP indexer(s) per language on your PATH — e.g. `scip-python`, `scip-java` (exact packages per language rollout)
 
-### 1. Start FalkorDB
-
-```bash
-docker compose up -d falkordb
-```
-
-(When `docker-compose.yml` includes FalkorDB; until then see [falkor/README.md](falkor/README.md) for `docker run` equivalents.)
-
-### 2. Install the CLI & run the daemon
+### 1. Start FalkorDB (the only container)
 
 ```bash
-pipx install codegraph   # illustrative; package name subject to packaging
-codegraph init           # seeds ~/.codegraph/
-codegraph serve          # listens on http://127.0.0.1:8765 (+ static dashboard assets)
+cp .env.example .env      # set FALKOR_BROWSER_ENCRYPTION_KEY (openssl rand -hex 32)
+docker compose up -d      # only the falkordb service is defined
 ```
+
+This exposes FalkorDB on `127.0.0.1:6379` and the FalkorDB Browser on `127.0.0.1:3000`.
+
+### 2. Run the backend natively
+
+```bash
+cd services/api
+pip install -r requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --port 8765
+```
+
+The API listens on `http://127.0.0.1:8765` and serves the web dashboard at `/`.
+It connects to the FalkorDB container on `127.0.0.1:6379` (override via
+`FALKOR_HOST` / `FALKOR_PORT`). Because the backend runs on the host, repository
+`local_path` values are real paths on this machine — no bind-mount translation.
 
 ### 3. Create a graph & attach a repo
 
